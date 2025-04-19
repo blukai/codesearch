@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"iter"
 	"os"
 	"regexp/syntax"
 	"sort"
@@ -373,6 +374,7 @@ type Grep struct {
 	PostContext int // number of lines to print before
 
 	buf []byte
+	err error
 }
 
 func (g *Grep) AddFlags() {
@@ -429,115 +431,161 @@ func countNL(b []byte) int {
 	return n
 }
 
-func (g *Grep) Reader(r io.Reader, name string) {
-	if g.buf == nil {
-		g.buf = make([]byte, 1<<20)
+// Err returns the first non-EOF error that was encountered by the [Grep] while
+// processing the most recent file or reader.
+func (g *Grep) Err() error {
+	return g.err
+}
+
+type GrepMatch struct {
+	Line []byte
+	// LineNo is the line number of the match.
+	// Will be 0 if [Grep]'s `N` flag is not set.
+	LineNo int
+	// PreContext contains lines before the match.
+	// Will be nil if [Grep]'s `B` or `C` flag is not set.
+	PreContext [][]byte
+	// PostContext contains lines after the match.
+	// Will be nil if [Grep]'s `A` or `C` flag is not set.
+	PostContext [][]byte
+}
+
+func (g *Grep) ReaderSeq(r io.Reader) iter.Seq[GrepMatch] {
+	return func(yield func(GrepMatch) bool) {
+		if g.buf == nil {
+			g.buf = make([]byte, 1<<20)
+		}
+		g.err = nil
+
+		var (
+			buf        = g.buf[:0]
+			needLineNo = g.N || g.HTML
+			lineNo     = 1
+			beginText  = true
+			endText    = false
+			chunkStart = 0
+		)
+		for {
+			n, err := io.ReadFull(r, buf[len(buf):cap(buf)])
+			buf = buf[:len(buf)+n]
+			end := len(buf)
+			if err == nil {
+				// Stop scan before trailing fragment of a line;
+				// also stop before g.PostContext whole lines,
+				// so we know we'll have the context we need to print.
+				d := lineSuffixLen(buf, g.PostContext+1)
+				if d < len(buf) {
+					end = len(buf) - d
+				}
+			} else {
+				endText = true
+			}
+			for chunkStart < end {
+				m1 := g.Regexp.Match(buf[chunkStart:end], beginText, endText) + chunkStart
+				beginText = false
+				if m1 < chunkStart {
+					break
+				}
+				g.Match = true
+				if g.Limit > 0 && g.Matches >= g.Limit {
+					g.Limited = true
+					return
+				}
+				g.Matches++
+				lineStart := bytes.LastIndex(buf[chunkStart:m1], nl) + 1 + chunkStart
+				lineEnd := m1 + 1
+				if lineEnd > end {
+					lineEnd = end
+				}
+				match := GrepMatch{}
+				if needLineNo {
+					lineNo += countNL(buf[chunkStart:lineStart])
+					match.LineNo = lineNo
+				}
+				if g.PreContext+g.PostContext > 0 {
+					match.PreContext, match.Line, match.PostContext = lineContext(
+						g.PreContext, g.PostContext, buf, lineStart, lineEnd)
+				} else {
+					match.Line = buf[lineStart:lineEnd]
+				}
+				if !yield(match) {
+					return
+				}
+				if needLineNo {
+					lineNo++
+				}
+				chunkStart = lineEnd
+			}
+			if needLineNo && err == nil {
+				lineNo += countNL(buf[chunkStart:end])
+			}
+			// Slide pre-context and unprocessed bytes down to start of buffer.
+			d := lineSuffixLen(buf[:end], g.PreContext)
+			if d == end {
+				// Not enough room; give up on context.
+				d = 0
+			}
+			n = copy(buf, buf[end-d:])
+			buf = buf[:n]
+			chunkStart = d
+			if endText && err != nil {
+				if err != io.EOF && err != io.ErrUnexpectedEOF {
+					g.err = err
+				}
+				return
+			}
+		}
 	}
-	var (
-		buf        = g.buf[:0]
-		needLineno = g.N || g.HTML
-		lineno     = 1
-		count      = 0
-		prefix     = ""
-		beginText  = true
-		endText    = false
-	)
+}
+
+func (g *Grep) Reader(r io.Reader, name string) {
+	count := 0
+	prefix := ""
 	if !g.H {
 		prefix = name + ":"
 	}
-	chunkStart := 0
-	for {
-		n, err := io.ReadFull(r, buf[len(buf):cap(buf)])
-		buf = buf[:len(buf)+n]
-		end := len(buf)
-		if err == nil {
-			// Stop scan before trailing fragment of a line;
-			// also stop before g.PostContext whole lines,
-			// so we know we'll have the context we need to print.
-			d := lineSuffixLen(buf, g.PostContext+1)
-			if d < len(buf) {
-				end = len(buf) - d
+
+	for match := range g.ReaderSeq(r) {
+		if g.L {
+			if g.HTML {
+				fmt.Fprintf(g.Stdout, "<a href=\"show/%s\">%s</a>\n", g.esc(name), g.esc(name))
+			} else {
+				fmt.Fprintf(g.Stdout, "%s\n", name)
 			}
-		} else {
-			endText = true
+			return
 		}
-		for chunkStart < end {
-			m1 := g.Regexp.Match(buf[chunkStart:end], beginText, endText) + chunkStart
-			beginText = false
-			if m1 < chunkStart {
-				break
-			}
-			g.Match = true
-			if g.Limit > 0 && g.Matches >= g.Limit {
-				g.Limited = true
-				return
-			}
-			g.Matches++
-			if g.L {
-				if g.HTML {
-					fmt.Fprintf(g.Stdout, "<a href=\"show/%s\">%s</a>\n", g.esc(name), g.esc(name))
-				} else {
-					fmt.Fprintf(g.Stdout, "%s\n", name)
-				}
-				return
-			}
-			lineStart := bytes.LastIndex(buf[chunkStart:m1], nl) + 1 + chunkStart
-			lineEnd := m1 + 1
-			if lineEnd > end {
-				lineEnd = end
-			}
-			if needLineno {
-				lineno += countNL(buf[chunkStart:lineStart])
-			}
-			line := buf[lineStart:lineEnd]
-			nl := ""
-			if len(line) == 0 || line[len(line)-1] != '\n' {
-				nl = "\n"
-			}
-			switch {
-			case g.C:
-				count++
-			case g.PreContext+g.PostContext > 0:
-				fmt.Fprintf(g.Stdout, "%s%d:\n", prefix, lineno)
-				before, match, after := lineContext(g.PreContext, g.PostContext, buf, lineStart, lineEnd)
-				for _, line := range before {
-					fmt.Fprintf(g.Stdout, "\t\t%s\n", line)
-				}
-				fmt.Fprintf(g.Stdout, "\t>>\t%s\n", match)
-				for _, line := range after {
-					fmt.Fprintf(g.Stdout, "\t\t%s\n", line)
-				}
-			case g.HTML:
-				fmt.Fprintf(g.Stdout, "<a href=\"/show/%s?q=%s#L%d\">%s:%d</a>:%s%s", g.esc(strings.ReplaceAll(name, "#", ">")), g.esc(g.Regexp.String()), lineno, g.esc(name), lineno, g.esc(string(line)), nl)
-			case g.N:
-				fmt.Fprintf(g.Stdout, "%s%d:%s%s", prefix, lineno, line, nl)
-			default:
-				fmt.Fprintf(g.Stdout, "%s%s%s", prefix, line, nl)
-			}
-			if needLineno {
-				lineno++
-			}
-			chunkStart = lineEnd
+
+		nl := ""
+		if len(match.Line) == 0 || match.Line[len(match.Line)-1] != '\n' {
+			nl = "\n"
 		}
-		if needLineno && err == nil {
-			lineno += countNL(buf[chunkStart:end])
-		}
-		// Slide pre-context and unprocessed bytes down to start of buffer.
-		d := lineSuffixLen(buf[:end], g.PreContext)
-		if d == end {
-			// Not enough room; give up on context.
-			d = 0
-		}
-		n = copy(buf, buf[end-d:])
-		buf = buf[:n]
-		chunkStart = d
-		if endText && err != nil {
-			if err != io.EOF && err != io.ErrUnexpectedEOF {
-				fmt.Fprintf(g.Stderr, "%s: %v\n", g.esc(name), err)
+
+		switch {
+		case g.C:
+			count += 1
+		case g.PreContext+g.PostContext > 0:
+			fmt.Fprintf(g.Stdout, "%s%d:\n", prefix, match.LineNo)
+			for _, line := range match.PreContext {
+				fmt.Fprintf(g.Stdout, "\t\t%s\n", line)
 			}
+			fmt.Fprintf(g.Stdout, "\t>>\t%s%s", match.Line, nl)
+			for _, line := range match.PostContext {
+				fmt.Fprintf(g.Stdout, "\t\t%s\n", line)
+			}
+		case g.HTML:
+			fmt.Fprintf(g.Stdout, "<a href=\"/show/%s?q=%s#L%d\">%s:%d</a>:%s%s", g.esc(strings.ReplaceAll(name, "#", ">")), g.esc(g.Regexp.String()), match.LineNo, g.esc(name), match.LineNo, g.esc(string(match.Line)), nl)
+		case g.N:
+			fmt.Fprintf(g.Stdout, "%s%d:%s%s", prefix, match.LineNo, match.Line, nl)
+		default:
+			fmt.Fprintf(g.Stdout, "%s%s%s", prefix, match.Line, nl)
+		}
+
+		if err := g.Err(); err != nil {
+			fmt.Fprintf(g.Stderr, "%s: %v\n", g.esc(name), err)
 			break
 		}
 	}
+
 	if g.C && count > 0 {
 		if g.HTML {
 			fmt.Fprintf(g.Stdout, "<a href=\"show/%s?q=%s\">%s</a>: %d\n", g.esc(name), g.esc(g.Regexp.String()), g.esc(name), count)
