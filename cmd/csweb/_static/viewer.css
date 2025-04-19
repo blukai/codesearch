@@ -1,4 +1,14 @@
-.sel {
-	background-color: #ffff88;
+.search-form {
+	display: flex;
 }
-input[type="text"] { width: 80%; }
+
+.search-form__input {
+	flex-grow: 1;
+	margin-right: 1em;
+}
+
+.sel {
+	background-color: #ffffbb;
+	width: 100%;
+	display: block;
+}

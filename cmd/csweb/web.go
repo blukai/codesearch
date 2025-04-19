@@ -11,12 +11,15 @@ import (
 	"flag"
 	"fmt"
 	"html"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
+	stdregexp "regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -39,6 +42,60 @@ func main() {
 //go:embed _static
 var static embed.FS
 
+func compileQuery(qarg string) (*regexp.Regexp, *stdregexp.Regexp, error) {
+	pat := "(?m)" + qarg
+	re, err := regexp.Compile(pat)
+	if err != nil {
+		return nil, nil, err
+	}
+	// NOTE: regex err was checked above ^
+	stdre := stdregexp.MustCompile(re.Syntax.String())
+	return re, stdre, nil
+}
+
+func markLineMatches(line []byte, stdre *stdregexp.Regexp) string {
+	e := html.EscapeString
+	b := strings.Builder{}
+	lastLocEnd := 0
+	for _, loc := range stdre.FindAllIndex(line, -1) {
+		prefix := line[lastLocEnd:loc[0]]
+		stem := line[loc[0]:loc[1]]
+		lastLocEnd = loc[1]
+
+		b.WriteString(e(string(prefix)))
+		b.WriteString(`<mark><b>`)
+		b.WriteString(e(string(stem)))
+		b.WriteString(`</b></mark>`)
+	}
+	b.WriteString(e(string(line[lastLocEnd:])))
+	return b.String()
+}
+
+func serveMatches(w io.Writer, r io.Reader, name string, g *regexp.Grep, stdre *stdregexp.Regexp) {
+	e := html.EscapeString
+	for match := range g.ReaderSeq(r) {
+		nl := ""
+		if len(match.Line) == 0 || match.Line[len(match.Line)-1] != '\n' {
+			nl = "\n"
+		}
+
+		fmt.Fprintf(w, "<a href=\"/show/%s?q=%s&l=%d\">%s:%d</a>:%s%s",
+			e(strings.ReplaceAll(name, "#", ">")),
+			e(strings.TrimPrefix(g.Regexp.String(), "(?m)")),
+			match.LineNo,
+			e(name),
+			match.LineNo,
+			markLineMatches(match.Line, stdre),
+			nl,
+		)
+
+		if err := g.Err(); err != nil {
+			// TODO: make this red or something?
+			fmt.Fprintf(g.Stderr, "%s: %v\n", e(name), err)
+		}
+	}
+}
+
 func home(w http.ResponseWriter, r *http.Request) {
 	qarg := r.FormValue("q")
 	w.Write([]byte(strings.ReplaceAll(homePage, "QUERY", html.EscapeString(qarg))))
@@ -46,20 +103,17 @@ func home(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	g := regexp.Grep{
-		HTML:   true,
-		Limit:  100000,
-		Stdout: w,
-		Stderr: w,
-	}
-
-	pat := "(?m)" + qarg
-	re, err := regexp.Compile(pat)
+	re, stdre, err := compileQuery(qarg)
 	if err != nil {
 		fmt.Fprintf(w, "Bad query: %v\n", err)
 		return
 	}
-	g.Regexp = re
+	g := regexp.Grep{
+		Regexp: re,
+		Limit:  10000,
+		N:      true,
+	}
+
 	var fre *regexp.Regexp
 	farg := r.FormValue("f")
 	if farg != "" {
@@ -69,12 +123,14 @@ func home(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
 	q := index.RegexpQuery(re.Syntax)
 	if *verboseFlag {
 		log.Printf("query: %s\n", q)
 	}
 
 	start := time.Now()
+
 	ix := index.Open(index.File())
 	ix.Verbose = *verboseFlag
 	post := ix.PostingQuery(q)
@@ -137,14 +193,14 @@ func home(w http.ResponseWriter, r *http.Request) {
 					if err != nil {
 						continue
 					}
-					g.Reader(r, name)
+					serveMatches(w, r, name, &g, stdre)
 					r.Close()
 					continue
 				}
 			}
 			continue
 		}
-		g.Reader(file, name)
+		serveMatches(w, file, name, &g, stdre)
 		file.Close()
 	}
 
@@ -159,11 +215,10 @@ var homePage = `<!DOCTYPE html>
 <head>
 <link rel="stylesheet" type="text/css" href="_static/viewer.css" />
 <body>
-Code Search
 <p>
-<form action="/">
-<input type="text" name="q" value="QUERY">
-<input type="submit">
+<form action="/" class="search-form">
+<input type="text" name="q" value="QUERY" placeholder="pattern" class="search-form__input">
+<button type="submit">submit</button>
 </form>
 <p>
 <hr>
@@ -190,67 +245,107 @@ func show(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		w.Write(serveDir(file, dirs))
+		serveDir(w, file, dirs)
 		return
 	}
 
 	data, err := os.ReadFile(file)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.Write(serveFile(file, data))
+
+	qarg := r.FormValue("q")
+	larg := r.FormValue("l")
+
+	serveFile(w, file, data, qarg, larg)
 }
 
-func printHeader(buf *bytes.Buffer, file string) {
+func printHeader(w io.Writer, file string) {
 	e := html.EscapeString
-	buf.WriteString("<!DOCTYPE html>\n<head>\n")
-	buf.WriteString("<link rel=\"stylesheet\" href=\"/_static/viewer.css\">\n")
-	buf.WriteString("<script src=\"/_static/viewer.js\"></script>\n")
-	fmt.Fprintf(buf, `<title>%s - code search</title>`, e(file))
-	buf.WriteString("\n</head><body onload=\"highlight()\"><pre>\n")
+	fmt.Fprintf(w, "<!DOCTYPE html>\n<head>\n")
+	fmt.Fprintf(w, "<link rel=\"stylesheet\" href=\"/_static/viewer.css\">\n")
+	fmt.Fprintf(w, "<script src=\"/_static/viewer.js\"></script>\n")
+	fmt.Fprintf(w, `<title>%s - code search</title>`, e(file))
+	fmt.Fprintf(w, "\n</head><body onload=\"scrollToLine()\"><pre>\n")
 	f := ""
-	for _, elem := range strings.Split(file, "/") {
-		f += "/" + elem
-		fmt.Fprintf(buf, `/<a href="/show%s">%s</a>`, e(f), e(elem))
+	elems := strings.Split(file, "/")
+	// NOTE: this fixes double // prefix in absolute paths
+	if elems[0] == "" {
+		elems = elems[1:]
 	}
-	fmt.Fprintf(buf, `</b> <small>(<a href="/">about</a>)</small>`)
-	fmt.Fprintf(buf, "\n\n")
+	for _, elem := range elems {
+		f += "/" + elem
+		fmt.Fprintf(w, `/<a href="/show%s">%s</a>`, e(f), e(elem))
+	}
+	fmt.Fprintf(w, `</b> <small>(<a href="/">index</a>)</small>`)
+	fmt.Fprintf(w, "\n\n")
 }
 
-func serveDir(file string, dir []fs.DirEntry) []byte {
-	var buf bytes.Buffer
+func serveDir(w io.Writer, file string, dir []fs.DirEntry) {
 	e := html.EscapeString
-	printHeader(&buf, file)
+	printHeader(w, file)
 	for _, d := range dir {
 		// Note: file is the full path including mod@vers.
 		file := path.Join(file, d.Name())
-		fmt.Fprintf(&buf, "<a href=\"/show%s\">%s</a>\n", e(file), e(path.Base(file)))
+		fmt.Fprintf(w, "<a href=\"/show%s\">%s</a>\n", e(file), e(path.Base(file)))
 	}
-	return buf.Bytes()
 }
 
 var nl = []byte("\n")
 
-func serveFile(file string, data []byte) []byte {
+func serveFile(w http.ResponseWriter, name string, data []byte, qarg, larg string) {
+	start := time.Now()
+
 	if !isText(data) {
-		return data
+		w.Write(data)
+		fmt.Fprintf(w, "\n served in %.3fs\n", time.Since(start).Seconds())
+		return
 	}
 
-	var buf bytes.Buffer
-	e := html.EscapeString
-	printHeader(&buf, file)
-	n := 1 + bytes.Count(data, nl)
-	wid := len(fmt.Sprintf("%d", n))
+	printHeader(w, name)
+
+	var re *regexp.Regexp
+	var stdre *stdregexp.Regexp
+	if qarg != "" {
+		re, stdre, _ = compileQuery(qarg)
+	}
+
+	selectedLine := -1
+	if n, err := strconv.Atoi(larg); err == nil {
+		selectedLine = n
+	}
+
+	lineCount := bytes.Count(data, nl) + 1
+	wid := len(fmt.Sprintf("%d", lineCount))
 	wid = (wid+2+7)&^7 - 2
-	n = 1
-	for len(data) > 0 {
+
+	e := html.EscapeString
+
+	for n := 1; len(data) > 0; n += 1 {
 		var line []byte
 		line, data, _ = bytes.Cut(data, nl)
-		fmt.Fprintf(&buf, "<span id=\"L%d\">%*d  %s\n</span>", n, wid, n, e(string(line)))
-		n++
+
+		end := -1
+		if re != nil {
+			end = re.Match(line, n == 1, true)
+		}
+
+		if end == -1 {
+			fmt.Fprintf(w, "<span id=\"L%d\">%*d  %s\n</span>",
+				n, wid, n, e(string(line)))
+			continue
+		}
+
+		maybeClass := ""
+		if selectedLine == n {
+			maybeClass = `class="sel"`
+		}
+		fmt.Fprintf(w, "<span id=\"L%d\"%s>%*d  %s\n</span>",
+			n, maybeClass, wid, n, markLineMatches(line, stdre))
 	}
-	return buf.Bytes()
+
+	fmt.Fprintf(w, "\n served in %.3fs\n", time.Since(start).Seconds())
 }
 
 // isText reports whether a significant prefix of s looks like correct UTF-8;

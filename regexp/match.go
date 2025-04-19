@@ -9,14 +9,12 @@ import (
 	"encoding/binary"
 	"flag"
 	"fmt"
-	"html"
 	"io"
 	"iter"
 	"os"
 	"regexp/syntax"
 	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/google/codesearch/sparse"
 )
@@ -364,7 +362,6 @@ type Grep struct {
 	H bool // H flag - do not print file names
 	V bool // V flag - print non-matching lines (only for cgrep, not csearch)
 
-	HTML    bool // emit HTML output for csweb
 	Match   bool // were any matches found?
 	Matches int  // how many matches were found?
 	Limit   int  // stop after this many matches
@@ -399,17 +396,10 @@ func (g *Grep) AddVFlag() {
 	flag.BoolVar(&g.V, "v", false, "show non-matching lines")
 }
 
-func (g *Grep) esc(s string) string {
-	if g.HTML {
-		return html.EscapeString(s)
-	}
-	return s
-}
-
 func (g *Grep) File(name string) {
 	f, err := os.Open(name)
 	if err != nil {
-		fmt.Fprintf(g.Stderr, "%s\n", g.esc(err.Error()))
+		fmt.Fprintf(g.Stderr, "%s\n", err.Error())
 		return
 	}
 	defer f.Close()
@@ -459,7 +449,7 @@ func (g *Grep) ReaderSeq(r io.Reader) iter.Seq[GrepMatch] {
 
 		var (
 			buf        = g.buf[:0]
-			needLineNo = g.N || g.HTML
+			needLineNo = g.N
 			lineNo     = 1
 			beginText  = true
 			endText    = false
@@ -547,11 +537,7 @@ func (g *Grep) Reader(r io.Reader, name string) {
 
 	for match := range g.ReaderSeq(r) {
 		if g.L {
-			if g.HTML {
-				fmt.Fprintf(g.Stdout, "<a href=\"show/%s\">%s</a>\n", g.esc(name), g.esc(name))
-			} else {
-				fmt.Fprintf(g.Stdout, "%s\n", name)
-			}
+			fmt.Fprintf(g.Stdout, "%s\n", name)
 			return
 		}
 
@@ -572,8 +558,6 @@ func (g *Grep) Reader(r io.Reader, name string) {
 			for _, line := range match.PostContext {
 				fmt.Fprintf(g.Stdout, "\t\t%s\n", line)
 			}
-		case g.HTML:
-			fmt.Fprintf(g.Stdout, "<a href=\"/show/%s?q=%s#L%d\">%s:%d</a>:%s%s", g.esc(strings.ReplaceAll(name, "#", ">")), g.esc(g.Regexp.String()), match.LineNo, g.esc(name), match.LineNo, g.esc(string(match.Line)), nl)
 		case g.N:
 			fmt.Fprintf(g.Stdout, "%s%d:%s%s", prefix, match.LineNo, match.Line, nl)
 		default:
@@ -581,17 +565,13 @@ func (g *Grep) Reader(r io.Reader, name string) {
 		}
 
 		if err := g.Err(); err != nil {
-			fmt.Fprintf(g.Stderr, "%s: %v\n", g.esc(name), err)
+			fmt.Fprintf(g.Stderr, "%s: %v\n", name, err)
 			break
 		}
 	}
 
 	if g.C && count > 0 {
-		if g.HTML {
-			fmt.Fprintf(g.Stdout, "<a href=\"show/%s?q=%s\">%s</a>: %d\n", g.esc(name), g.esc(g.Regexp.String()), g.esc(name), count)
-		} else {
-			fmt.Fprintf(g.Stdout, "%s: %d\n", name, count)
-		}
+		fmt.Fprintf(g.Stdout, "%s: %d\n", name, count)
 	}
 }
 

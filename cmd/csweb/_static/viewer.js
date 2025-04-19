@@ -1,8 +1,4 @@
-function highlight() {
-	if(window.location.hash) {
-		var span = document.getElementById(window.location.hash.substr(1));
-		if(span) {
-			span.classList.add("sel");
-		}
-	}
+function scrollToLine() {
+	const els = document.getElementsByClassName("sel");
+	els[0]?.scrollIntoView({ block: "center" });
 }
