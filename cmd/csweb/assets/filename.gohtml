@@ -1,0 +1,58 @@
+{{define "page.filename.head"}}
+  {{template "layout.head" .}}
+{{end}}
+
+{{define "page.filename.breadcrumbs"}}
+  <nav class="breadcrumbs">
+    <ol>
+      <li class="text-gray"></li>
+      {{$acc := ""}}
+      {{range $i, $it := .Breadcrumbs}}
+        {{$acc = print $acc "/" $it.Part}}
+        <li {{if $it.Backtracking}} class="text-gray" {{end}}>
+          {{- if $it.Backtracking -}}
+            {{$it.Part}}
+          {{- else if eq $i (sub (len $.Breadcrumbs) 1) -}}
+            <b>{{$it.Part}}</b>
+          {{- else -}}
+            <a href="{{$acc}}?q={{$.Query}}">{{$it.Part}}</a>
+          {{- end -}}
+        </li>
+      {{end}}
+    </ol>
+  </nav>
+{{end}}
+
+{{define "page.filename.dirs"}}
+  <br />
+  {{range $_, $dir := .Dirs}}
+    <a href="{{$dir}}?q={{$.Query}}">{{$dir}}</a><br />
+  {{end}}
+{{end}}
+
+{{- define "page.filename.lines.pre" -}}
+  <pre class="source-lines">
+{{- end -}}
+{{- define "page.filename.lines.line" -}}
+  <div id="l{{.LineNo}}">
+    {{- printf "%*d  " .LinePad .LineNo -}}
+    {{- if .LineMatches -}}
+      {{- $end := 0 -}}
+      {{- range $_, $loc := .LineMatches -}}
+        {{- slice $.Line $end (index $loc 0) -}}
+        <mark>{{slice $.Line (index $loc 0) (index $loc 1)}}</mark>
+        {{- $end = index $loc 1 -}}
+      {{- end -}}
+      {{- slice .Line $end -}}
+    {{- else -}}
+      {{- .Line -}}
+    {{- end -}}
+  </div>
+{{- end -}}
+{{- define "page.filename.lines.post" -}}
+  </pre>
+{{- end -}}
+
+{{define "page.filename.foot"}}
+  {{template "layout.foot" .}}
+{{end}}

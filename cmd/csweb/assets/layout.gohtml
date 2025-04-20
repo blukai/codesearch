@@ -1,0 +1,29 @@
+{{define "layout.head"}}
+  <!doctype html>
+  <html>
+    <head>
+      <title>code search</title>
+      <link rel="stylesheet" href="/assets/main.css" />
+    </head>
+    <body>
+      <header>
+        <form action="/" class="search-form">
+          <input type="text" name="q" value="{{.Query}}" placeholder="pattern" class="search-form__input">
+          <button type="submit">submit</button>
+        </form>
+      </header>
+      <hr />
+      <main>
+{{end}}
+
+{{define "layout.foot"}}
+      </main>
+      <footer>
+        {{if .TimeElapsed}}
+          rendered in {{printf "%.3fs" .TimeElapsed}}
+        {{end}}
+      </footer>
+    </body>
+  </html>
+{{end}}
+

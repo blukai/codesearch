@@ -1,0 +1,27 @@
+{{define "page.index.head"}}
+  {{template "layout.head" .}}
+{{end}}
+
+{{define "page.index.match"}}
+  <div>
+    <a href="{{.Filename}}?q={{.Query}}#l{{.LineNo}}">{{.Filename}}:{{.LineNo}}</a>:
+    {{- $end := 0 -}}
+    {{- range $_, $loc := .LineMatches -}}
+      {{- slice $.Line $end (index $loc 0) -}}
+      <mark>{{slice $.Line (index $loc 0) (index $loc 1)}}</mark>
+      {{- $end = index $loc 1 -}}
+    {{- end -}}
+    {{- slice .Line $end -}}
+  </div>
+{{end}}
+
+{{define "page.index.foot"}}
+  <br />
+  <div>
+    {{if .MatchCount}}
+      found {{.MatchCount}} matches
+    {{end}}
+  </div>
+  <br />
+  {{template "layout.foot" .}}
+{{end}}
