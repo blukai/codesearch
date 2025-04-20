@@ -1,0 +1,43 @@
+{{block "page.file" .}}
+  {{template "layout.head" .}}
+  <nav class="file-header breadcrumbs">
+    <ol>
+      <li class="text-gray"></li>
+      {{$acc := ""}}
+      {{range $i, $it := .Breadcrumbs}}
+        {{$acc = print $acc "/" $it.Part}}
+        <li {{if $it.OutOfRoot}} class="text-gray" {{end}}>
+          {{- if $it.OutOfRoot -}}
+            {{$it.Part}}
+          {{- else -}}
+            <a href="{{$acc}}?q={{$.Query}}">{{$it.Part}}</a>
+          {{- end -}}
+        </li>
+      {{end}}
+    </ol>
+  </nav>
+  {{if .DirEntries}}
+    todo
+  {{else if .SourceFile}}
+    <div class="source-hunk">
+      {{range $_, $line := .SourceFile.Lines}}
+        <div id="l{{$line.LineNo}}" class="source-line">
+          {{- if $line.PreciseMatchLocations -}}
+            {{- printf "%*d  " $.SourceFile.LinePad $line.LineNo -}}
+            {{- $end := 0 -}}
+            {{- range $_, $loc := $line.PreciseMatchLocations -}}
+              {{- printf "%s" (slice $line.Line $end (index $loc 0)) -}}
+              <mark>{{printf "%s" (slice $line.Line (index $loc 0) (index $loc 1))}}</mark>
+              {{- $end = index $loc 1 -}}
+            {{- end -}}
+            {{- printf "%s" (slice $line.Line $end) -}}
+          {{- else -}}
+            {{- printf "%*d  %s" $.SourceFile.LinePad $line.LineNo $line.Line -}}
+          {{- end -}}
+        </div>
+      {{end}}
+    </div>
+  {{end}}
+  {{template "layout.foot" .}}
+{{end}}
+

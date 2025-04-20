@@ -5,12 +5,10 @@
 package main
 
 import (
-	"archive/zip"
 	"bytes"
 	"embed"
 	"flag"
 	"fmt"
-	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -24,6 +22,17 @@ import (
 	"github.com/google/codesearch/index"
 	"github.com/google/codesearch/regexp"
 )
+
+// TODO: fix directory listing
+// TODO: gray-out root in search results (as in breadcrumbs on file page)
+// TODO: generalize + reuse precise match template?
+// TODO: unfuck preciseGrepMatch, it is not as genral as i thought it would be
+// TODO: render one line of context around matches on search page
+// TODO: merge ~overlaping contexts in some way
+// TODO: experiment with full search history tracking and counting idea
+// TODO: render timings in footer
+// TODO: implement / search focus
+// TODO: when viewing a file - show all matches in a sidebar or something
 
 //go:embed assets
 var embeddedAssets embed.FS
@@ -50,6 +59,52 @@ func assert(truth bool, errs ...error) {
 	panic(buf.String())
 }
 
+type bufedHttpCtx struct {
+	r   *http.Request
+	buf bytes.Buffer
+}
+
+type bufedHttpErr struct {
+	status int
+	err    error
+}
+
+var notFoundBufedHttpErr *bufedHttpErr = &bufedHttpErr{
+	status: http.StatusNotFound,
+	err:    fmt.Errorf(http.StatusText(http.StatusNotFound)),
+}
+
+func newBadQueryBufedHttpErr(regexpCompileErr error) *bufedHttpErr {
+	return &bufedHttpErr{
+		status: http.StatusBadRequest,
+		err:    fmt.Errorf("bad query: %v", regexpCompileErr),
+	}
+}
+
+func (ctx *bufedHttpCtx) renderTemplate(name string, data any) *bufedHttpErr {
+	if err := templates.Render(&ctx.buf, name, data); err != nil {
+		return &bufedHttpErr{
+			status: http.StatusInternalServerError,
+			err:    fmt.Errorf("could not render %q template: %v", name, err),
+		}
+	}
+	return nil
+}
+
+func bufedHttpHandlerFunc(h func(*bufedHttpCtx) *bufedHttpErr) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := bufedHttpCtx{r: r}
+		if err := h(&ctx); err != nil {
+			assert(err.status > 0)
+			http.Error(w, err.err.Error(), err.status)
+			return
+		}
+		ctx.buf.WriteTo(w)
+	}
+}
+
+// TODO: organize return into a tuple-like struct for convenience, to avoid a
+// need to carry two structs around both of which can be nil!
 func compileQuery(qarg string) (*regexp.Regexp, *stdregexp.Regexp, error) {
 	pat := "(?m)" + qarg
 	re, err := regexp.Compile(pat)
@@ -61,75 +116,69 @@ func compileQuery(qarg string) (*regexp.Regexp, *stdregexp.Regexp, error) {
 	return re, stdre, nil
 }
 
-func renderFileMatches(w http.ResponseWriter, r io.Reader, name string, g *regexp.Grep, stdre *stdregexp.Regexp) (didErr bool) {
-	matchData := map[string]any{
-		// TODO: do i need to escape or replace # with something else for zip files?
-		"Filename": name,
-		// TODO: unhardcode "(?m)"
-		"Query": strings.TrimPrefix(g.Regexp.String(), "(?m)"),
-	}
+// func getQueryString(re *regexp.Regexp) string {
+// 	return strings.TrimPrefix(re.String(), "(?m)")
+// }
 
-	for match := range g.ReaderSeq(r) {
-		matchData["LineNo"] = match.LineNo
-		matchData["Line"] = string(match.Line)
-		matchData["LineMatches"] = stdre.FindAllIndex(match.Line, -1)
-
-		if err := templates.Render(w, "page.index.match", matchData); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			// template is broken
-			didErr = true
-			return
-		}
-
-		if err := g.Err(); err != nil {
-			// TODO: make this red or something?
-			// TODO: don't just print, exec template
-			fmt.Fprintf(g.Stderr, "%s: %v\n", name, err)
-			didErr = true
-		}
-	}
-
-	return
+func computeLinePad(maxLineNo int) int {
+	linePad := len(fmt.Sprintf("%d", maxLineNo))
+	linePad = (linePad+2+7)&^7 - 2
+	return linePad
 }
 
-func handleIndex(w http.ResponseWriter, r *http.Request) {
-	qarg := r.FormValue("q")
-	headData := map[string]any{"Query": qarg}
-	if err := templates.Render(w, "page.index.head", headData); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+// TODO: get rid of this. only usable in search results. factor this into
+// something like hunk + add support for pre and post context lines.
+type preciseGrepMatch struct {
+	Locations [][]int
+	regexp.GrepMatch
+}
+
+func newPreciseGrepMatch(
+	src *regexp.GrepMatch,
+	stdre *stdregexp.Regexp,
+) preciseGrepMatch {
+	dst := preciseGrepMatch{}
+
+	dst.Locations = stdre.FindAllIndex(src.Line, -1)
+	assert(len(dst.Locations) > 0)
+
+	// NOTE: this function get's called from the loop, deep copy is the
+	// only way to get "current" line into dst.
+	dst.Line = make([]byte, len(src.Line))
+	copy(dst.Line, src.Line)
+
+	dst.LineNo = src.LineNo
+
+	return dst
+}
+
+func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
+	qarg := ctx.r.FormValue("q")
+	if qarg == "" {
+		return ctx.renderTemplate("page.index", nil)
 	}
 
-	if qarg == "" {
-		if err := templates.Render(w, "page.index.foot", nil); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
+	start := time.Now()
 
 	re, stdre, err := compileQuery(qarg)
 	if err != nil {
-		// TODO: template this
-		fmt.Fprintf(w, "Bad query: %v\n", err)
-		return
+		return newBadQueryBufedHttpErr(err)
 	}
 	g := regexp.Grep{
 		Regexp: re,
 		Limit:  10000,
 		N:      true,
 	}
-
 	var fre *regexp.Regexp
-	if farg := r.FormValue("f"); farg != "" {
+	if farg := ctx.r.FormValue("f"); farg != "" {
 		fre, err = regexp.Compile(farg)
 		if err != nil {
-			// TODO: template this
-			fmt.Fprintf(w, "Bad -f flag: %v\n", err)
-			return
+			return &bufedHttpErr{
+				status: http.StatusBadRequest,
+				err:    fmt.Errorf("bad -f flag: %v", err),
+			}
 		}
 	}
-
-	start := time.Now()
 
 	ix := index.Open(index.File())
 	q := index.RegexpQuery(re.Syntax)
@@ -139,7 +188,7 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 		fnames := make([]int, 0, len(post))
 		for _, fileid := range post {
 			name := ix.Name(fileid)
-			if fre.MatchString(name.String(), true, true) < 0 {
+			if fre.MatchString(name.String(), true, true) == -1 {
 				continue
 			}
 			fnames = append(fnames, fileid)
@@ -147,59 +196,87 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 		post = fnames
 	}
 
-	var (
-		zipFile   string
-		zipReader *zip.ReadCloser
-		zipMap    map[string]*zip.File
-	)
+	type matchedFile struct {
+		Filename string
+		Matches  []preciseGrepMatch
+	}
+
+	matchedFiles := make([]matchedFile, 0)
+	maxLineNo := 0
+
+	// 	var zipFile   string
+	// 	var zipReader *zip.ReadCloser
+	// 	var zipMap    map[string]*zip.File
 
 	for _, fileid := range post {
 		if g.Limited {
 			break
 		}
-		name := ix.Name(fileid).String()
-		file, err := os.Open(name)
+
+		filename := ix.Name(fileid).String()
+		matches := make([]preciseGrepMatch, 0)
+
+		file, err := os.Open(filename)
 		if err != nil {
-			if i := strings.Index(name, ".zip\x01"); i >= 0 {
-				zfile, zname := name[:i+4], name[i+5:]
-				if zfile != zipFile {
-					if zipReader != nil {
-						zipReader.Close()
-						zipMap = nil
-					}
-					zipFile = zfile
-					zipReader, err = zip.OpenReader(zfile)
-					if err != nil {
-						zipReader = nil
-					}
-					if zipReader != nil {
-						zipMap = make(map[string]*zip.File)
-						for _, file := range zipReader.File {
-							zipMap[file.Name] = file
-						}
-					}
-				}
-				file := zipMap[zname]
-				if file != nil {
-					r, err := file.Open()
-					if err != nil {
-						continue
-					}
-					renderFileMatches(w, r, name, &g, stdre)
-					r.Close()
-					continue
-				}
+			if i := strings.Index(filename, ".zip\x01"); i >= 0 {
+				assert(false, fmt.Errorf("TODO: handle zips"))
+				// zfile, zname := name[:i+4], name[i+5:]
+				// if zfile != zipFile {
+				// 	if zipReader != nil {
+				// 		zipReader.Close()
+				// 		zipMap = nil
+				// 	}
+				// 	zipFile = zfile
+				// 	zipReader, err = zip.OpenReader(zfile)
+				// 	if err != nil {
+				// 		zipReader = nil
+				// 	}
+				// 	if zipReader != nil {
+				// 		zipMap = make(map[string]*zip.File)
+				// 		for _, file := range zipReader.File {
+				// 			zipMap[file.Name] = file
+				// 		}
+				// 	}
+				// }
+				// file := zipMap[zname]
+				// if file != nil {
+				// 	r, err := file.Open()
+				// 	if err != nil {
+				// 		continue
+				// 	}
+				// 	renderFileMatches(w, r, name, &g, stdre)
+				// 	r.Close()
+				// 	continue
+				// }
 			}
+
 			continue
 		}
-		renderFileMatches(w, file, name, &g, stdre)
+
+		for match := range g.ReaderSeq(file) {
+			maxLineNo = max(maxLineNo, match.LineNo)
+			matches = append(matches, newPreciseGrepMatch(&match, stdre))
+		}
+
 		file.Close()
+
+		// TODO: append errors into data and render them? group by file?
+		if err := g.Err(); err != nil {
+			assert(false, fmt.Errorf("unimplemented"))
+		}
+
+		if len(matches) > 0 {
+			matchedFiles = append(matchedFiles, matchedFile{Filename: filename, Matches: matches})
+		}
 	}
 
-	footData := map[string]any{"MatchCount": g.Matches, "TimeElapsed": time.Since(start).Seconds()}
-	if err := templates.Render(w, "page.index.foot", footData); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	return ctx.renderTemplate("page.index", map[string]any{
+		"Query":       qarg,
+		"Files":       matchedFiles,
+		"LinePad":     computeLinePad(maxLineNo),
+		"MatchCount":  g.Matches,
+		"TimeElapsed": time.Since(start).Seconds(),
+	})
 }
 
 // isText reports whether a significant prefix of s looks like correct UTF-8;
@@ -222,19 +299,31 @@ func isText(s []byte) bool {
 	return true
 }
 
-func renderBreadcrumbs(w http.ResponseWriter, filename, root, qarg string) (didErr bool) {
-	type breadcrumb struct {
-		Part         string
-		Backtracking bool
+func findRoot(ix *index.Index, filename string) (string, bool) {
+	root := ""
+	for it := range ix.Roots().All() {
+		it := it.String()
+		if strings.HasPrefix(filename, it) {
+			root = it
+		}
 	}
+	return root, root != ""
+}
+
+type breadcrumb struct {
+	Part      string
+	OutOfRoot bool
+}
+
+func composeBreadcrumbs(root, filename string) []breadcrumb {
 	breadcrumbs := make([]breadcrumb, 0)
 	breadcrumbOffset := 0
 	for i, part := range filename {
 		if part == '/' {
 			if i > 0 {
 				breadcrumbs = append(breadcrumbs, breadcrumb{
-					Part:         filename[breadcrumbOffset:i],
-					Backtracking: strings.HasPrefix(root, filename[:i]) && root != filename[:i],
+					Part:      filename[breadcrumbOffset:i],
+					OutOfRoot: strings.HasPrefix(root, filename[:i]) && root != filename[:i],
 				})
 			}
 			breadcrumbOffset = i + 1
@@ -242,22 +331,16 @@ func renderBreadcrumbs(w http.ResponseWriter, filename, root, qarg string) (didE
 	}
 	assert(filename[len(filename)-1] != '/')
 	breadcrumbs = append(breadcrumbs, breadcrumb{Part: filename[breadcrumbOffset:]})
-
-	breadcrumbsData := map[string]any{"Query": qarg, "Breadcrumbs": breadcrumbs}
-	if err := templates.Render(w, "page.filename.breadcrumbs", breadcrumbsData); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return true
-	}
-
-	return false
+	return breadcrumbs
 }
 
-func renderDir(w http.ResponseWriter, filename, qarg string) (didErr bool) {
+func renderDir(ctx *bufedHttpCtx, filename, qarg string) *bufedHttpErr {
 	dirEntries, err := os.ReadDir(filename)
 	if err != nil {
-		// TODO: template this
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return true
+		return &bufedHttpErr{
+			status: http.StatusInternalServerError,
+			err:    err,
+		}
 	}
 	// TODO: match and highlight dits with matches?
 	dirs := slices.Collect(func(yield func(string) bool) {
@@ -268,66 +351,54 @@ func renderDir(w http.ResponseWriter, filename, qarg string) (didErr bool) {
 		}
 	})
 	dirsData := map[string]any{"Query": qarg, "Dirs": dirs}
-	if err := templates.Render(w, "page.filename.dirs", dirsData); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return true
-	}
+	return ctx.renderTemplate("page.filename.dirs", dirsData)
+}
 
-	return false
+type sourceLine struct {
+	Line                  []byte
+	LineNo                int
+	PreciseMatchLocations [][]int
+}
+
+type sourceFile struct {
+	LinePad int
+	Lines   []sourceLine
 }
 
 var nl = []byte("\n")
 
-func renderLines(w http.ResponseWriter, qarg string, data []byte) (didErr bool) {
-	err := templates.Render(w, "page.filename.lines.pre", nil)
-	assert(err == nil, err)
-	defer func(w http.ResponseWriter) {
-		err := templates.Render(w, "page.filename.lines.post", nil)
-		assert(err == nil, err)
-	}(w)
-
-	var re *regexp.Regexp
-	var stdre *stdregexp.Regexp
-	if qarg != "" {
-		re, stdre, _ = compileQuery(qarg)
+func readSourceFile(filename string, re *regexp.Regexp, stdre *stdregexp.Regexp) (*sourceFile, error) {
+	// TODO: protect from huge files
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, fmt.Errorf("could not read %q: %w", filename, err)
 	}
 
-	lineCount := bytes.Count(data, nl) + 1
-	linePad := len(fmt.Sprintf("%d", lineCount))
-	linePad = (linePad+2+7)&^7 - 2
-
-	lineData := map[string]any{
-		"LinePad": linePad,
-		"LineNo":  1,
+	ret := sourceFile{
+		LinePad: computeLinePad(bytes.Count(data, nl) + 1),
+		Lines:   make([]sourceLine, 0),
 	}
 
 	for lineNo := 1; len(data) > 0; lineNo += 1 {
-		var line []byte
-		line, data, _ = bytes.Cut(data, nl)
-
-		lineData["LineNo"] = lineNo
-		lineData["Line"] = string(line)
-		lineData["LineMatches"] = nil
+		sourceLine := sourceLine{LineNo: lineNo}
+		sourceLine.Line, data, _ = bytes.Cut(data, nl)
 
 		if re != nil {
-			if re.Match(line, lineNo == 1, true) != -1 {
-				lineData["LineMatches"] = stdre.FindAllIndex(line, -1)
+			assert(stdre != nil)
+			if re.Match(sourceLine.Line, lineNo == 1, true) != -1 {
+				sourceLine.PreciseMatchLocations = stdre.FindAllIndex(sourceLine.Line, -1)
 			}
 		}
 
-		if err := templates.Render(w, "page.filename.lines.line", lineData); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return true
-		}
+		ret.Lines = append(ret.Lines, sourceLine)
+
 	}
 
-	return false
+	return &ret, nil
 }
 
-func handleFile(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-
-	filename := r.URL.Path
+func handleFile(ctx *bufedHttpCtx) *bufedHttpErr {
+	filename := ctx.r.URL.Path
 	if strings.HasPrefix(filename, "/") && filepath.IsAbs(filename[1:]) {
 		// Turn /c:/foo into c:/foo on Windows.
 		filename = filename[1:]
@@ -336,71 +407,73 @@ func handleFile(w http.ResponseWriter, r *http.Request) {
 	ix := index.Open(index.File())
 
 	// NOTE: this prevents serving filenames that aren't at known roots
-	root := ""
-	for it := range ix.Roots().All() {
-		it := it.String()
-		if strings.HasPrefix(filename, it) {
-			root = it
-		}
-	}
-	if root == "" {
-		http.NotFound(w, r)
-		return
+	root, foundRoot := findRoot(ix, filename)
+	if !foundRoot {
+		return notFoundBufedHttpErr
 	}
 
-	// TODO maybe trim file by ix.roots
 	// TODO zips
 	info, err := os.Stat(filename)
 	if err != nil {
 		if os.IsNotExist(err) {
-			http.NotFound(w, r)
-			return
+			return notFoundBufedHttpErr
 		}
-		// TODO: template this
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return &bufedHttpErr{
+			status: http.StatusInternalServerError,
+			err:    err,
+		}
 	}
 
-	qarg := r.FormValue("q")
-	headData := map[string]any{"Query": qarg}
-	if err := templates.Render(w, "page.filename.head", headData); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if renderBreadcrumbs(w, filename, root, qarg) {
-		return
-	}
+	breadcrumbs := composeBreadcrumbs(root, filename)
 
 	if info.IsDir() {
-		if renderDir(w, filename, qarg) {
-			return
-		}
-		footData := map[string]any{"TimeElapsed": time.Since(start).Seconds()}
-		if err := templates.Render(w, "page.filename.foot", footData); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-		return
+		assert(false, fmt.Errorf("unimplemented"))
+		// if err := renderDir(ctx, filename, qarg); err != nil {
+		// 	return err
+		// }
+		// if err := ctx.renderTemplate("page.filename.foot", nil); err != nil {
+		// 	return err
+		// }
+		// return nil
 	}
 
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return &bufedHttpErr{
+			status: http.StatusInternalServerError,
+			err:    err,
+		}
 	}
 
 	if !isText(data) {
-		http.Error(w, "requested non text file. implmenet me serving it", http.StatusBadRequest)
-		return
+		assert(false, fmt.Errorf("requested non text file. implmenet me serving it"))
 	}
 
-	if renderLines(w, qarg, data) {
-		return
+	var re *regexp.Regexp
+	var stdre *stdregexp.Regexp
+	qarg := ctx.r.FormValue("q")
+	if qarg != "" {
+		re, stdre, err = compileQuery(qarg)
+		if err != nil {
+			return newBadQueryBufedHttpErr(err)
+		}
 	}
-	footData := map[string]any{"TimeElapsed": time.Since(start).Seconds()}
-	if err := templates.Render(w, "page.filename.foot", footData); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+	sourceFile, err := readSourceFile(filename, re, stdre)
+	if err != nil {
+		return &bufedHttpErr{
+			status: http.StatusInternalServerError,
+			err:    err,
+		}
 	}
+
+	return ctx.renderTemplate("page.file", map[string]any{
+		"Query":       qarg,
+		"Breadcrumbs": breadcrumbs,
+		"SourceFile":  sourceFile,
+		// "MatchCount":  g.Matches,
+		// "TimeElapsed": time.Since(start).Seconds(),
+	})
 }
 
 func erringMain() error {
@@ -427,8 +500,8 @@ func erringMain() error {
 	}
 
 	http.Handle("GET /assets/{asset...}", http.StripPrefix("/assets", http.FileServerFS(assets)))
-	http.HandleFunc("GET /{$}", handleIndex)
-	http.HandleFunc("GET /{file...}", handleFile)
+	http.HandleFunc("GET /{$}", bufedHttpHandlerFunc(handleIndex))
+	http.HandleFunc("GET /{file...}", bufedHttpHandlerFunc(handleFile))
 
 	return http.ListenAndServe("localhost:2473", nil)
 }

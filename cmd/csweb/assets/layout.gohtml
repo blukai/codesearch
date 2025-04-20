@@ -12,17 +12,10 @@
           <button type="submit">submit</button>
         </form>
       </header>
-      <hr />
       <main>
 {{end}}
-
 {{define "layout.foot"}}
       </main>
-      <footer>
-        {{if .TimeElapsed}}
-          rendered in {{printf "%.3fs" .TimeElapsed}}
-        {{end}}
-      </footer>
     </body>
   </html>
 {{end}}

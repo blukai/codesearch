@@ -1,27 +1,28 @@
-{{define "page.index.head"}}
+{{block "page.index" .}}
   {{template "layout.head" .}}
-{{end}}
-
-{{define "page.index.match"}}
-  <div>
-    <a href="{{.Filename}}?q={{.Query}}#l{{.LineNo}}">{{.Filename}}:{{.LineNo}}</a>:
-    {{- $end := 0 -}}
-    {{- range $_, $loc := .LineMatches -}}
-      {{- slice $.Line $end (index $loc 0) -}}
-      <mark>{{slice $.Line (index $loc 0) (index $loc 1)}}</mark>
-      {{- $end = index $loc 1 -}}
-    {{- end -}}
-    {{- slice .Line $end -}}
-  </div>
-{{end}}
-
-{{define "page.index.foot"}}
-  <br />
-  <div>
-    {{if .MatchCount}}
-      found {{.MatchCount}} matches
+  {{if .Query}}
+    {{range $_, $file := .Files}}
+      <a href="{{$file.Filename}}?q={{$.Query}}" class="file-header">
+        {{$file.Filename}}
+      </a>
+      {{range $_, $match := $file.Matches}}
+        <a href="{{$file.Filename}}?q={{$.Query}}#l{{$match.LineNo}}" class="source-hunk">
+          <div class="source-line">
+            {{- printf "%*d  " $.LinePad $match.LineNo -}}
+            {{- $end := 0 -}}
+            {{- range $_, $loc := $match.Locations -}}
+              {{- printf "%s" (slice $match.Line $end (index $loc 0)) -}}
+              <mark>{{printf "%s" (slice $match.Line (index $loc 0) (index $loc 1))}}</mark>
+              {{- $end = index $loc 1 -}}
+            {{- end -}}
+            {{- printf "%s" (slice $match.Line $end) -}}
+          </div>
+        </a>
+      {{end}}
     {{end}}
-  </div>
-  <br />
+    <div>
+      rendered {{.MatchCount}} matches in {{printf "%.3fs" .TimeElapsed}}
+    </div>
+  {{end}}
   {{template "layout.foot" .}}
 {{end}}

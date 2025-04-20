@@ -1,3 +1,32 @@
+:root {
+	--space-xs: 2px;
+	--space-s: 4px;
+	--space-m: 8px;
+	--space-l: 12px;
+	--space-xl: 16px;
+
+	/* https://www.radix-ui.com/colors/docs/overview/installation */
+	--gray-1: #111111;
+	--gray-2: #191919;
+	--gray-3: #222222;
+	--gray-4: #2a2a2a;
+	--gray-5: #313131;
+	--gray-6: #3a3a3a;
+	--gray-7: #484848;
+	--gray-8: #606060;
+	--gray-9: #6e6e6e;
+	--gray-10: #7b7b7b;
+	--gray-11: #b4b4b4;
+	--gray-12: #eeeeee;
+
+
+	/* https://github.com/primer/react/blob/b8b090be2f146a8d8854028f8a88110e1ed1e4bd/src/legacy-theme/ts/colors/dark_high_contrast.ts */
+	--bg: rgb(10, 12, 16);
+	--fg: rgb(240, 243, 246);
+
+	--divider: var(--gray-4);
+}
+
 /* https://github.com/AllThingsSmitty/css-protips?tab=readme-ov-file#inherit-box-sizing */
 html {
   box-sizing: border-box;
@@ -9,14 +38,19 @@ html {
 }
 
 html {
+	color-scheme: dark;
 	height: 100%;
 	font-family: monospace;
+	font-size: 14px;
 }
 
 body {
 	min-height: 100%;
 	margin: 0;
-	padding: 1em;
+	padding: 0;
+	background: var(--bg);
+	color: var(--fg);
+	line-height: 1.6;
 }
 
 body {
@@ -31,14 +65,19 @@ main {
 header,
 footer {
 	flex-shrink: 0;
+	padding: var(--space-m) var(--space-m);
 }
 
-hr {
-	width: 100%;
-	margin: 1em 0;
-	height: 1px;
-	background: currentColor;
-	border: none;
+header {
+	box-shadow: 0 1px 0 0 var(--divider);
+}
+
+footer {
+	margin-top: auto;
+}
+
+a {
+	text-decoration: none;
 }
 
 .search-form {
@@ -47,7 +86,7 @@ hr {
 
 .search-form__input {
 	flex-grow: 1;
-	margin-right: 1em;
+	margin-right: var(--space-m);
 }
 
 .breadcrumbs ol {
@@ -68,14 +107,37 @@ hr {
 	color: gray;
 }
 
-.source-lines {
-	white-space: pre;
-}
-
-.sourrce-lines > div {
+.file-header {
+	display: block;
 	width: 100%;
+	padding: var(--space-s) var(--space-m);
+	background: var(--gray-2);
+	box-shadow: 0 1px 0 0 var(--divider), 0 -1px 0 0 var(--divider);
 }
 
-.source-lines > div:target {
-	background-color: #ffffbb;
+.source-hunk {
+	display: block;
+	width: 100%;
+	overflow: hidden;
+	padding: var(--space-s) 0;
 }
+
+a.source-hunk {
+	color: inherit;
+}
+
+a.source-hunk:hover {
+	background: var(--gray-4);
+}
+
+.source-line {
+	white-space: pre;
+	display: block;
+	width: 100%;
+	padding: 0 var(--space-m);
+}
+
+.source-line:target {
+	background-color: var(--gray-4);
+}
+
