@@ -164,3 +164,15 @@ a.source-hunk:focus {
 	scroll-margin-top: calc(var(--header-height) + var(--file-header-height) + 1rem);
 	background: var(--bg-attention-muted);
 }
+
+.source-line__line-no {
+	display: inline-block;
+	box-shadow: 1px 0 0 0 var(--divider);
+	margin-right: 1ch;
+	padding-right: 1ch;
+}
+
+.source-line__line-no::before {
+	color: var(--fg-disabled);
+	content: attr(data-line-no);
+}
