@@ -88,22 +88,8 @@ a {
 	margin-right: var(--space-m);
 }
 
-.breadcrumbs ol {
-	display: flex;
-	flex-wrap: wrap;
-	list-style: none;
-	margin: 0;
-	padding: 0;
-}
-
-.breadcrumbs li:not(:last-child)::after {
-	display: inline-block;
-	content: "/";
-	color: currentColor;
-}
-
 .text-gray {
-	color: gray;
+	color: var(--gray-10);
 }
 
 .file-header {
@@ -114,6 +100,7 @@ a {
 	box-shadow: 0 1px 0 0 var(--divider), 0 -1px 0 0 var(--divider);
 }
 
+.file-header a:hover,
 a.file-header:hover {
 	text-decoration: underline;
 }

@@ -2,11 +2,21 @@
   {{template "layout.head" .}}
   {{if .Query}}
     {{range $_, $file := .Files}}
-      <a href="{{$file.Filename}}?q={{$.Query}}" class="file-header">
-        {{$file.Filename}}
+      {{$lastBreadcrumb := index $file.Breadcrumbs (sub (len $file.Breadcrumbs) 1)}}
+      {{$filename := printf "%s/%s" $lastBreadcrumb.Dirname $lastBreadcrumb.Basename}}
+      <a href="{{$filename}}?q={{$.Query}}" class="file-header">
+        {{- range $_, $breadcrumb := $file.Breadcrumbs -}}
+          {{- if $breadcrumb.IsOutOfRoot -}}
+            <span class="text-gray">/{{$breadcrumb.Basename}}</span>
+          {{- else if $breadcrumb.IsDir -}}
+            /{{$breadcrumb.Basename}}
+          {{- else -}}
+            /<b>{{$breadcrumb.Basename}}</b>
+          {{- end -}}
+        {{- end -}}
       </a>
       {{range $_, $match := $file.Matches}}
-        <a href="{{$file.Filename}}?q={{$.Query}}#l{{$match.LineNo}}" class="source-hunk">
+        <a href="{{$filename}}?q={{$.Query}}#l{{$match.LineNo}}" class="source-hunk">
           <div class="source-line">
             {{- printf "%*d  " $.LinePad $match.LineNo -}}
             {{- $end := 0 -}}

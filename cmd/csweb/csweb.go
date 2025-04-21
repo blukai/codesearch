@@ -22,7 +22,6 @@ import (
 	"github.com/google/codesearch/regexp"
 )
 
-// TODO: gray-out root in search results (as in breadcrumbs on file page)
 // TODO: generalize + reuse precise match template?
 // TODO: unfuck preciseGrepMatch, it is not as genral as i thought it would be
 // TODO: render one line of context around matches on search page
@@ -118,6 +117,64 @@ func compileQuery(qarg string) (*regexp.Regexp, *stdregexp.Regexp, error) {
 // 	return strings.TrimPrefix(re.String(), "(?m)")
 // }
 
+func findRoot(ix *index.Index, name string) (string, bool) {
+	root := ""
+	for it := range ix.Roots().All() {
+		it := it.String()
+		if strings.HasPrefix(name, it) {
+			root = it
+		}
+	}
+	return root, root != ""
+}
+
+type breadcrumb struct {
+	Basename string // see path.Base
+	Dirname  string // see path.Dir
+	IsDir    bool   // indicates whether Basename is a dir
+	// IsOutOfRoot indicates whether this breadcrumb would illegally step
+	// outside of root to do path traversal attack
+	IsOutOfRoot bool
+}
+
+func collectBreadcrumbs(root, name string) ([]breadcrumb, error) {
+	assert(name[len(name)-1] != '/', fmt.Errorf("target must not end with /"))
+
+	breadcrumbs := make([]breadcrumb, 0)
+
+	prevPartEnd := 0
+	nel := len(name)
+	for i, it := range name {
+		atSeparator := it == '/'
+		wouldEnd := i == nel-1
+		if (!atSeparator && !wouldEnd) || i == 0 {
+			continue
+		}
+
+		partEnd := i
+		isDir := true
+		if wouldEnd {
+			partEnd = nel
+			fi, err := os.Stat(name[:partEnd])
+			if err != nil {
+				return nil, fmt.Errorf("could not stat %q: %w", name, err)
+			}
+			isDir = fi.IsDir()
+		}
+
+		breadcrumbs = append(breadcrumbs, breadcrumb{
+			Basename:    name[prevPartEnd+1 : partEnd],
+			Dirname:     name[:prevPartEnd],
+			IsDir:       isDir,
+			IsOutOfRoot: strings.HasPrefix(root, name[:partEnd]) && root != name[:partEnd],
+		})
+
+		prevPartEnd = partEnd
+	}
+
+	return breadcrumbs, nil
+}
+
 func computeLinePad(maxLineNo int) int {
 	linePad := len(fmt.Sprintf("%d", maxLineNo))
 	linePad = (linePad+2+7)&^7 - 2
@@ -183,20 +240,20 @@ func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
 	post := ix.PostingQuery(q)
 
 	if fre != nil {
-		fnames := make([]int, 0, len(post))
+		filtered := make([]int, 0, len(post))
 		for _, fileid := range post {
 			name := ix.Name(fileid)
 			if fre.MatchString(name.String(), true, true) == -1 {
 				continue
 			}
-			fnames = append(fnames, fileid)
+			filtered = append(filtered, fileid)
 		}
-		post = fnames
+		post = filtered
 	}
 
 	type matchedFile struct {
-		Filename string
-		Matches  []preciseGrepMatch
+		Breadcrumbs []breadcrumb
+		Matches     []preciseGrepMatch
 	}
 
 	matchedFiles := make([]matchedFile, 0)
@@ -258,13 +315,28 @@ func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
 
 		file.Close()
 
-		// TODO: append errors into data and render them? group by file?
+		// TODO: collect grep errs and render them?
 		if err := g.Err(); err != nil {
 			assert(false, fmt.Errorf("unimplemented"))
 		}
 
 		if len(matches) > 0 {
-			matchedFiles = append(matchedFiles, matchedFile{Filename: filename, Matches: matches})
+			// TODO: might want to cache this
+			root, foundRoot := findRoot(ix, filename)
+			assert(foundRoot)
+
+			breadcrumbs, err := collectBreadcrumbs(root, filename)
+			if err != nil {
+				return &bufedHttpErr{
+					status: http.StatusInternalServerError,
+					err:    fmt.Errorf("could not collect breadcrumbs: %w", err),
+				}
+			}
+
+			matchedFiles = append(matchedFiles, matchedFile{
+				Breadcrumbs: breadcrumbs,
+				Matches:     matches,
+			})
 		}
 	}
 
@@ -295,64 +367,6 @@ func isText(s []byte) bool {
 		}
 	}
 	return true
-}
-
-func findRoot(ix *index.Index, filename string) (string, bool) {
-	root := ""
-	for it := range ix.Roots().All() {
-		it := it.String()
-		if strings.HasPrefix(filename, it) {
-			root = it
-		}
-	}
-	return root, root != ""
-}
-
-type breadcrumb struct {
-	Basename string // see path.Base
-	Dirname  string // see path.Dir
-	IsDir    bool   // indicates whether Basename is a dir
-	// IsOutOfRoot indicates whether this breadcrumb would illegally step
-	// outside of root to do path traversal attack
-	IsOutOfRoot bool
-}
-
-func collectBreadcrumbs(root, name string) ([]breadcrumb, error) {
-	assert(name[len(name)-1] != '/', fmt.Errorf("target must not end with /"))
-
-	breadcrumbs := make([]breadcrumb, 0)
-
-	prevPartEnd := 0
-	nel := len(name)
-	for i, it := range name {
-		atSeparator := it == '/'
-		wouldEnd := i == nel-1
-		if (!atSeparator && !wouldEnd) || i == 0 {
-			continue
-		}
-
-		partEnd := i
-		isDir := true
-		if wouldEnd {
-			partEnd = nel
-			fi, err := os.Stat(name[:partEnd])
-			if err != nil {
-				return nil, fmt.Errorf("could not stat %q: %w", name, err)
-			}
-			isDir = fi.IsDir()
-		}
-
-		breadcrumbs = append(breadcrumbs, breadcrumb{
-			Basename:    name[prevPartEnd+1 : partEnd],
-			Dirname:     name[:prevPartEnd],
-			IsDir:       isDir,
-			IsOutOfRoot: strings.HasPrefix(root, name[:partEnd]) && root != name[:partEnd],
-		})
-
-		prevPartEnd = partEnd
-	}
-
-	return breadcrumbs, nil
 }
 
 type dirEntry struct {
