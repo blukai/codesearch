@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	stdregexp "regexp"
-	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -23,7 +22,6 @@ import (
 	"github.com/google/codesearch/regexp"
 )
 
-// TODO: fix directory listing
 // TODO: gray-out root in search results (as in breadcrumbs on file page)
 // TODO: generalize + reuse precise match template?
 // TODO: unfuck preciseGrepMatch, it is not as genral as i thought it would be
@@ -311,47 +309,67 @@ func findRoot(ix *index.Index, filename string) (string, bool) {
 }
 
 type breadcrumb struct {
-	Part      string
-	OutOfRoot bool
+	Basename string // see path.Base
+	Dirname  string // see path.Dir
+	IsDir    bool   // indicates whether Basename is a dir
+	// IsOutOfRoot indicates whether this breadcrumb would illegally step
+	// outside of root to do path traversal attack
+	IsOutOfRoot bool
 }
 
-func composeBreadcrumbs(root, filename string) []breadcrumb {
+func collectBreadcrumbs(root, name string) ([]breadcrumb, error) {
+	assert(name[len(name)-1] != '/', fmt.Errorf("target must not end with /"))
+
 	breadcrumbs := make([]breadcrumb, 0)
-	breadcrumbOffset := 0
-	for i, part := range filename {
-		if part == '/' {
-			if i > 0 {
-				breadcrumbs = append(breadcrumbs, breadcrumb{
-					Part:      filename[breadcrumbOffset:i],
-					OutOfRoot: strings.HasPrefix(root, filename[:i]) && root != filename[:i],
-				})
-			}
-			breadcrumbOffset = i + 1
+
+	prevPartEnd := 0
+	nel := len(name)
+	for i, it := range name {
+		atSeparator := it == '/'
+		wouldEnd := i == nel-1
+		if (!atSeparator && !wouldEnd) || i == 0 {
+			continue
 		}
+
+		partEnd := i
+		isDir := true
+		if wouldEnd {
+			partEnd = nel
+			fi, err := os.Stat(name[:partEnd])
+			if err != nil {
+				return nil, fmt.Errorf("could not stat %q: %w", name, err)
+			}
+			isDir = fi.IsDir()
+		}
+
+		breadcrumbs = append(breadcrumbs, breadcrumb{
+			Basename:    name[prevPartEnd+1 : partEnd],
+			Dirname:     name[:prevPartEnd],
+			IsDir:       isDir,
+			IsOutOfRoot: strings.HasPrefix(root, name[:partEnd]) && root != name[:partEnd],
+		})
+
+		prevPartEnd = partEnd
 	}
-	assert(filename[len(filename)-1] != '/')
-	breadcrumbs = append(breadcrumbs, breadcrumb{Part: filename[breadcrumbOffset:]})
-	return breadcrumbs
+
+	return breadcrumbs, nil
 }
 
-func renderDir(ctx *bufedHttpCtx, filename, qarg string) *bufedHttpErr {
-	dirEntries, err := os.ReadDir(filename)
+type dirEntry struct {
+	Name string
+}
+
+func collectDirEntries(path string) ([]dirEntry, error) {
+	dirEntries, err := os.ReadDir(path)
 	if err != nil {
-		return &bufedHttpErr{
-			status: http.StatusInternalServerError,
-			err:    err,
-		}
+		return nil, fmt.Errorf("could not read dir: %w", err)
 	}
+	ret := make([]dirEntry, len(dirEntries))
 	// TODO: match and highlight dits with matches?
-	dirs := slices.Collect(func(yield func(string) bool) {
-		for _, de := range dirEntries {
-			if !yield(filename + "/" + de.Name()) {
-				return
-			}
-		}
-	})
-	dirsData := map[string]any{"Query": qarg, "Dirs": dirs}
-	return ctx.renderTemplate("page.filename.dirs", dirsData)
+	for i, it := range dirEntries {
+		ret[i] = dirEntry{Name: it.Name()}
+	}
+	return ret, nil
 }
 
 type sourceLine struct {
@@ -397,8 +415,8 @@ func readSourceFile(filename string, re *regexp.Regexp, stdre *stdregexp.Regexp)
 	return &ret, nil
 }
 
-func handleFile(ctx *bufedHttpCtx) *bufedHttpErr {
-	filename := ctx.r.URL.Path
+func handleFilepath(ctx *bufedHttpCtx) *bufedHttpErr {
+	filename := strings.TrimSuffix(ctx.r.URL.Path, "/")
 	if strings.HasPrefix(filename, "/") && filepath.IsAbs(filename[1:]) {
 		// Turn /c:/foo into c:/foo on Windows.
 		filename = filename[1:]
@@ -424,17 +442,28 @@ func handleFile(ctx *bufedHttpCtx) *bufedHttpErr {
 		}
 	}
 
-	breadcrumbs := composeBreadcrumbs(root, filename)
+	qarg := ctx.r.FormValue("q")
+	breadcrumbs, err := collectBreadcrumbs(root, filename)
+	if err != nil {
+		return &bufedHttpErr{
+			status: http.StatusInternalServerError,
+			err:    fmt.Errorf("could not collect breadcrumbs: %w", err),
+		}
+	}
 
 	if info.IsDir() {
-		assert(false, fmt.Errorf("unimplemented"))
-		// if err := renderDir(ctx, filename, qarg); err != nil {
-		// 	return err
-		// }
-		// if err := ctx.renderTemplate("page.filename.foot", nil); err != nil {
-		// 	return err
-		// }
-		// return nil
+		dirEntries, err := collectDirEntries(filename)
+		if err != nil {
+			return &bufedHttpErr{
+				status: http.StatusInternalServerError,
+				err:    err,
+			}
+		}
+		return ctx.renderTemplate("page.filepath", map[string]any{
+			"Query":       qarg,
+			"Breadcrumbs": breadcrumbs,
+			"DirEntries":  dirEntries,
+		})
 	}
 
 	data, err := os.ReadFile(filename)
@@ -451,7 +480,6 @@ func handleFile(ctx *bufedHttpCtx) *bufedHttpErr {
 
 	var re *regexp.Regexp
 	var stdre *stdregexp.Regexp
-	qarg := ctx.r.FormValue("q")
 	if qarg != "" {
 		re, stdre, err = compileQuery(qarg)
 		if err != nil {
@@ -467,7 +495,7 @@ func handleFile(ctx *bufedHttpCtx) *bufedHttpErr {
 		}
 	}
 
-	return ctx.renderTemplate("page.file", map[string]any{
+	return ctx.renderTemplate("page.filepath", map[string]any{
 		"Query":       qarg,
 		"Breadcrumbs": breadcrumbs,
 		"SourceFile":  sourceFile,
@@ -501,7 +529,7 @@ func erringMain() error {
 
 	http.Handle("GET /assets/{asset...}", http.StripPrefix("/assets", http.FileServerFS(assets)))
 	http.HandleFunc("GET /{$}", bufedHttpHandlerFunc(handleIndex))
-	http.HandleFunc("GET /{file...}", bufedHttpHandlerFunc(handleFile))
+	http.HandleFunc("GET /{filepath...}", bufedHttpHandlerFunc(handleFilepath))
 
 	return http.ListenAndServe("localhost:2473", nil)
 }

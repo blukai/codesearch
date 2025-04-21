@@ -1,23 +1,25 @@
-{{block "page.file" .}}
+{{block "page.filepath" .}}
   {{template "layout.head" .}}
   <nav class="file-header breadcrumbs">
     <ol>
       <li class="text-gray"></li>
-      {{$acc := ""}}
-      {{range $i, $it := .Breadcrumbs}}
-        {{$acc = print $acc "/" $it.Part}}
-        <li {{if $it.OutOfRoot}} class="text-gray" {{end}}>
-          {{- if $it.OutOfRoot -}}
-            {{$it.Part}}
+      {{range $i, $breadcrumb := .Breadcrumbs}}
+        <li {{if $breadcrumb.IsOutOfRoot}} class="text-gray" {{end}}>
+          {{- if $breadcrumb.IsOutOfRoot -}}
+            {{$breadcrumb.Basename}}
           {{- else -}}
-            <a href="{{$acc}}?q={{$.Query}}">{{$it.Part}}</a>
+            <a href="{{$breadcrumb.Dirname}}/{{$breadcrumb.Basename}}{{if $breadcrumb.IsDir}}/{{end}}?q={{$.Query}}">{{$breadcrumb.Basename}}</a>
           {{- end -}}
         </li>
       {{end}}
     </ol>
   </nav>
   {{if .DirEntries}}
-    todo
+    {{range $_, $dirEntry := .DirEntries}}
+      <a href="./{{$dirEntry.Name}}?q={{$.Query}}" class="file-header">
+        {{$dirEntry.Name}}
+      </a>
+    {{end}}
   {{else if .SourceFile}}
     <div class="source-hunk">
       {{range $_, $line := .SourceFile.Lines}}

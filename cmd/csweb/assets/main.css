@@ -41,7 +41,6 @@ html {
 	color-scheme: dark;
 	height: 100%;
 	font-family: monospace;
-	font-size: 14px;
 }
 
 body {
@@ -113,6 +112,10 @@ a {
 	padding: var(--space-s) var(--space-m);
 	background: var(--gray-2);
 	box-shadow: 0 1px 0 0 var(--divider), 0 -1px 0 0 var(--divider);
+}
+
+a.file-header:hover {
+	text-decoration: underline;
 }
 
 .source-hunk {
