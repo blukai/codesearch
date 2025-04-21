@@ -16,8 +16,7 @@
         {{- end -}}
       </a>
       {{range $_, $hunk := $searchResult.Hunks}}
-        {{$firstLine := index $hunk.Lines 0}}
-        <a href="{{$filename}}?q={{$.Query}}#l{{$firstLine.LineNo}}" class="source-hunk">
+        <a href="{{$filename}}?q={{$.Query}}#l{{$hunk.FirstNonContextLineNo}}" class="source-hunk">
           {{range $_, $line := $hunk.Lines}}
             <div class="source-line">
               {{- template "component.source-line" map "LinePad" $.LinePad "SourceLine" . -}}

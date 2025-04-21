@@ -195,6 +195,8 @@ type sourceLine struct {
 
 type sourceHunk struct {
 	Lines []sourceLine
+	// NOTE: make sure to init this with -1
+	FirstNonContextLineNo int
 }
 
 // returns 0, false if contains no lines.
@@ -221,6 +223,11 @@ func (h *sourceHunk) maybeAppendLineCopy(line []byte, lineNo int, query *query) 
 		PreciseMatchLocations: query.stdre.FindAllIndex(line, -1),
 	}
 	copy(sr.Line, line)
+
+	if h.FirstNonContextLineNo == -1 && len(sr.PreciseMatchLocations) > 0 {
+		h.FirstNonContextLineNo = lineNo
+	}
+
 	h.Lines = append(h.Lines, sr)
 }
 
@@ -242,14 +249,16 @@ func (f *fileSearchResult) shouldStartNewHunk(grepMatch *regexp.GrepMatch) bool 
 
 	lineNo := grepMatch.LineNo - len(grepMatch.PreContext)
 	gap := lineNo - lastLineNo
-	// NOCOMMIT: is this correct?
 	return gap > 0
 }
 
 func (f *fileSearchResult) appendGrepMatch(grepMatch *regexp.GrepMatch, query *query) {
 	if f.shouldStartNewHunk(grepMatch) {
 		initCap := len(grepMatch.PreContext) + 1 + len(grepMatch.PostContext)
-		f.Hunks = append(f.Hunks, sourceHunk{Lines: make([]sourceLine, 0, initCap)})
+		f.Hunks = append(f.Hunks, sourceHunk{
+			Lines:                 make([]sourceLine, 0, initCap),
+			FirstNonContextLineNo: -1,
+		})
 	}
 
 	hunk := &f.Hunks[len(f.Hunks)-1]
