@@ -8,6 +8,32 @@ import (
 	"strings"
 )
 
+// allows to pass multiple args into templates in a stupid way.
+// but a stupid way is better then no way.
+func tmap(args ...any) map[string]any {
+	assert(len(args)%2 == 0)
+	ret := make(map[string]any, len(args)/2)
+	for i := 0; i < len(args); i += 2 {
+		key, ok := args[i].(string)
+		assert(ok)
+		ret[key] = args[i+1]
+	}
+	return ret
+}
+
+func tselectplural(n int, one, other string) string {
+	// handle exceptions like 11, 111, etc.
+	lastTwo := n % 100
+	if lastTwo >= 11 && lastTwo <= 19 {
+		return other
+	}
+	lastDigit := n % 10
+	if lastDigit == 1 {
+		return one
+	}
+	return other
+}
+
 type Templates interface {
 	Render(w io.Writer, name string, data any) error
 }
@@ -18,19 +44,11 @@ func initTemplate(fs fs.FS, patterns ...string) (*template.Template, error) {
 	// NOTE: must follow standard naming conventions; see
 	// https://pkg.go.dev/text/template#hdr-Functions
 	t.Funcs(template.FuncMap{
-		"trimspace": strings.TrimSpace,
-		"add":       func(lhs, rhs int) int { return lhs + rhs },
-		"sub":       func(lhs, rhs int) int { return lhs - rhs },
-		"map": func(args ...any) map[string]any {
-			assert(len(args)%2 == 0)
-			ret := make(map[string]any, len(args)/2)
-			for i := 0; i < len(args); i += 2 {
-				key, ok := args[i].(string)
-				assert(ok)
-				ret[key] = args[i+1]
-			}
-			return ret
-		},
+		"trimspace":    strings.TrimSpace,
+		"add":          func(lhs, rhs int) int { return lhs + rhs },
+		"sub":          func(lhs, rhs int) int { return lhs - rhs },
+		"map":          tmap,
+		"selectplural": tselectplural,
 	})
 
 	return t.ParseFS(fs, patterns...)

@@ -19,12 +19,20 @@
 	--gray-11: #b4b4b4;
 	--gray-12: #eeeeee;
 
+	--bg: #010409;
+	--bg-emphasis: var(--gray-4);
+	--bg-muted: var(--gray-2);
+	--bg-attention-muted: #edaa2726;
+	--bg-attention-emphasis: #7b4900;
 
-	/* https://github.com/primer/react/blob/b8b090be2f146a8d8854028f8a88110e1ed1e4bd/src/legacy-theme/ts/colors/dark_high_contrast.ts */
-	--bg: rgb(10, 12, 16);
-	--fg: rgb(240, 243, 246);
+	--fg: #ffffff;
+	--fg-accent: #71b7ff;
+	--fg-disabled: var(--gray-10);
 
-	--divider: var(--gray-4);
+	--divider: var(--gray-6);
+
+	--header-height: 40px;
+	--file-header-height: 30px;
 }
 
 /* https://github.com/AllThingsSmitty/css-protips?tab=readme-ov-file#inherit-box-sizing */
@@ -61,26 +69,30 @@ main {
 	flex-grow: 1;
 }
 
-header,
-footer {
-	flex-shrink: 0;
-	padding: var(--space-m) var(--space-m);
-}
-
 header {
+	display: flex;
+	align-items: center;
+	padding: 0 var(--space-m);
 	box-shadow: 0 1px 0 0 var(--divider);
-}
-
-footer {
-	margin-top: auto;
+	background: var(--bg);
+	height: var(--header-height);
+	position: sticky;
+	top: 0;
 }
 
 a {
 	text-decoration: none;
+	color: var(--fg-accent);
+}
+
+mark {
+	background: var(--bg-attention-emphasis);
+	color: var(--fg);
 }
 
 .search-form {
 	display: flex;
+	width: 100%;
 }
 
 .search-form__input {
@@ -88,21 +100,40 @@ a {
 	margin-right: var(--space-m);
 }
 
-.text-gray {
-	color: var(--gray-10);
+.search-results-header {
+	padding: var(--space-s) var(--space-m);
+	box-shadow: 0 1px 0 0 var(--divider);
+	background: var(--bg);
+	position: sticky;
+	top: calc(var(--header-height) + 1px);
+}
+
+.text-disabled {
+	color: var(--fg-disabled);
 }
 
 .file-header {
-	display: block;
-	width: 100%;
-	padding: var(--space-s) var(--space-m);
-	background: var(--gray-2);
+	display: flex;
+	align-items: center;
 	box-shadow: 0 1px 0 0 var(--divider), 0 -1px 0 0 var(--divider);
+	padding: 0 var(--space-m);
+	background: var(--bg-muted);
+	height: var(--file-header-height);
 }
 
 .file-header a:hover,
 a.file-header:hover {
 	text-decoration: underline;
+}
+
+.file-header__search-results {
+	margin-left: auto;
+	flex-grow: 0;
+}
+
+.file-header--sticky {
+	position: sticky;
+	top: calc(var(--header-height) + 1px);
 }
 
 .source-hunk {
@@ -117,8 +148,9 @@ a.source-hunk {
 	color: inherit;
 }
 
-a.source-hunk:hover {
-	background: var(--gray-4);
+a.source-hunk:hover,
+a.source-hunk:focus {
+	background: var(--bg-emphasis);
 }
 
 .source-line {
@@ -128,3 +160,7 @@ a.source-hunk:hover {
 	padding: 0 var(--space-m);
 }
 
+.source-line:target {
+	scroll-margin-top: calc(var(--header-height) + var(--file-header-height) + 1rem);
+	background: var(--bg-attention-muted);
+}

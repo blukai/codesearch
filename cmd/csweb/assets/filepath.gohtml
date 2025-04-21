@@ -1,24 +1,32 @@
 {{block "page.filepath" .}}
   {{template "layout.head" .}}
-  <div class="file-header">
-    {{- range $_, $breadcrumb := .Breadcrumbs -}}
-      {{- $filename := printf "%s/%s" $breadcrumb.Dirname $breadcrumb.Basename -}}
-      {{- if $breadcrumb.IsOutOfRoot -}}
-        <span class="text-gray">/{{$breadcrumb.Basename}}</span>
-      {{- else if $breadcrumb.IsDir -}}
-        <span class="text-gray">/</span><a href="{{$filename}}/?q={{$.Query}}">{{$breadcrumb.Basename}}</a>
-      {{- else -}}
-        <span class="text-gray">/</span><a href="{{$filename}}?q={{$.Query}}"><b>{{$breadcrumb.Basename}}</b></a>
-      {{- end -}}
-    {{- end -}}
-  </div>
-  {{if .DirEntries}}
-    {{range $_, $dirEntry := .DirEntries}}
-      <a href="./{{$dirEntry.Name}}?q={{$.Query}}" class="file-header">
-        {{$dirEntry.Name}}
-      </a>
+  {{if .SourceDir}}
+    <div class="file-header file-header--sticky">
+      {{template "page.filepath__breadcrumbs" map "Breadcrumbs" .SourceDir.Breadcrumbs "Query" .Query}}
+    </div>
+    {{range $_, $entry := .SourceDir.Entries}}
+      <div class="file-header">
+        {{if $entry.IsDir}}
+          {{/* NOTE: wihtut trailing slash (/) dot-slash (./) will not work */}}
+          <a href="./{{$entry.Name}}/?q={{$.Query}}">
+            {{$entry.Name}}
+          </a>
+        {{else}}
+          <a href="./{{$entry.Name}}?q={{$.Query}}">
+            {{$entry.Name}}
+          </a>
+        {{end}}
+      </div>
     {{end}}
   {{else if .SourceFile}}
+    <div class="file-header file-header--sticky">
+      {{template "page.filepath__breadcrumbs" map "Breadcrumbs" .SourceFile.Breadcrumbs "Query" .Query}}
+      {{if .Query}}
+        <div class="file-header__search-results">
+          {{.SourceFile.MatchCount}} {{selectplural .SourceFile.MatchCount "match" "matches"}}
+        </div>
+      {{end}}
+    </div>
     <div class="source-hunk">
       {{range $_, $line := .SourceFile.Lines}}
         <div id="l{{$line.LineNo}}" class="source-line">
@@ -29,4 +37,16 @@
   {{end}}
   {{template "layout.foot" .}}
 {{end}}
-
+{{define "page.filepath__breadcrumbs"}}
+  {{- range $_, $breadcrumb := .Breadcrumbs -}}
+    {{- $filename := printf "%s/%s" $breadcrumb.Dirname $breadcrumb.Basename -}}
+    {{- if $breadcrumb.IsOutOfRoot -}}
+      <span class="text-disabled">/{{$breadcrumb.Basename}}</span>
+    {{- else if $breadcrumb.IsDir -}}
+      {{- /* NOTE: wihtut trailing slash (/) dot-slash (./) will not work */ -}}
+      <span class="text-disabled">/</span><a href="{{$filename}}/?q={{$.Query}}">{{$breadcrumb.Basename}}</a>
+    {{- else -}}
+      <span class="text-disabled">/</span><a href="{{$filename}}?q={{$.Query}}"><b>{{$breadcrumb.Basename}}</b></a>
+    {{- end -}}
+  {{- end -}}
+{{end}}

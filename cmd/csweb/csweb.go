@@ -25,7 +25,6 @@ import (
 )
 
 // TODO: experiment with full search history tracking and counting idea
-// TODO: render timings in footer
 // TODO: implement / search focus
 // TODO: when viewing a file - show all matches in a sidebar or something
 
@@ -393,9 +392,45 @@ func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
 		"SearchResults": searchResults,
 		"LinePad":       computeLinePad(maxLineNo),
 		"MatchCount":    g.Matches,
-		// TODO: count actual search time?
-		"TimeElapsed": time.Since(start).Seconds(),
+		"TimeElapsed":   time.Since(start).Seconds(),
 	})
+}
+
+type dirEntry struct {
+	Name  string
+	IsDir bool
+}
+
+type sourceDir struct {
+	Breadcrumbs []breadcrumb
+	Entries     []dirEntry
+}
+
+func readDir(root, name string, query *query) (*sourceDir, error) {
+	dirEntries, err := os.ReadDir(name)
+	if err != nil {
+		return nil, fmt.Errorf("could not read dir: %w", err)
+	}
+
+	breadcrumbs, err := collectBreadcrumbs(root, name)
+	if err != nil {
+		return nil, fmt.Errorf("could not collect breadcrumbs: %w", err)
+	}
+
+	ret := sourceDir{
+		Breadcrumbs: breadcrumbs,
+		Entries:     make([]dirEntry, len(dirEntries)),
+	}
+
+	// TODO: match and highlight dits with matches?
+	for i, it := range dirEntries {
+		ret.Entries[i] = dirEntry{
+			Name:  it.Name(),
+			IsDir: it.IsDir(),
+		}
+	}
+
+	return &ret, nil
 }
 
 // isText reports whether a significant prefix of s looks like correct UTF-8;
@@ -418,40 +453,38 @@ func isText(s []byte) bool {
 	return true
 }
 
-type dirEntry struct {
-	Name string
-}
-
-func collectDirEntries(path string) ([]dirEntry, error) {
-	dirEntries, err := os.ReadDir(path)
-	if err != nil {
-		return nil, fmt.Errorf("could not read dir: %w", err)
-	}
-	ret := make([]dirEntry, len(dirEntries))
-	// TODO: match and highlight dits with matches?
-	for i, it := range dirEntries {
-		ret[i] = dirEntry{Name: it.Name()}
-	}
-	return ret, nil
-}
-
 type sourceFile struct {
-	LinePad int
-	Lines   []sourceLine
+	Breadcrumbs []breadcrumb
+	LinePad     int
+	Lines       []sourceLine
+	MatchCount  int
 }
 
 var nl = []byte("\n")
 
-func readSourceFile(filename string, query *query) (*sourceFile, error) {
-	// TODO: protect from huge files
-	data, err := os.ReadFile(filename)
+func readAndMatchFile(root, name string, query *query) (*sourceFile, error) {
+	// TODO: file size limit ?
+	data, err := os.ReadFile(name)
 	if err != nil {
-		return nil, fmt.Errorf("could not read %q: %w", filename, err)
+		return nil, fmt.Errorf("could not read %q: %w", name, err)
+	}
+
+	if !isText(data) {
+		// TODO: zips?
+		// TODO: report error
+		assert(false, fmt.Errorf("requested non text file. implmenet me serving it"))
+	}
+
+	breadcrumbs, err := collectBreadcrumbs(root, name)
+	if err != nil {
+		return nil, fmt.Errorf("could not collect breadcrumbs: %w", err)
 	}
 
 	ret := sourceFile{
-		LinePad: computeLinePad(bytes.Count(data, nl) + 1),
-		Lines:   make([]sourceLine, 0),
+		Breadcrumbs: breadcrumbs,
+		LinePad:     computeLinePad(bytes.Count(data, nl) + 1),
+		Lines:       make([]sourceLine, 0),
+		MatchCount:  0,
 	}
 
 	for lineNo := 1; len(data) > 0; lineNo += 1 {
@@ -461,6 +494,7 @@ func readSourceFile(filename string, query *query) (*sourceFile, error) {
 		if query != nil {
 			if query.re.Match(sourceLine.Line, lineNo == 1, true) != -1 {
 				sourceLine.PreciseMatchLocations = query.stdre.FindAllIndex(sourceLine.Line, -1)
+				ret.MatchCount += 1
 			}
 		}
 
@@ -472,22 +506,24 @@ func readSourceFile(filename string, query *query) (*sourceFile, error) {
 }
 
 func handleFilepath(ctx *bufedHttpCtx) *bufedHttpErr {
-	filename := strings.TrimSuffix(ctx.r.URL.Path, "/")
-	if strings.HasPrefix(filename, "/") && filepath.IsAbs(filename[1:]) {
+	name := strings.TrimSuffix(ctx.r.URL.Path, "/")
+	if strings.HasPrefix(name, "/") && filepath.IsAbs(name[1:]) {
 		// Turn /c:/foo into c:/foo on Windows.
-		filename = filename[1:]
+		name = name[1:]
 	}
+
+	start := time.Now()
 
 	ix := index.Open(index.File())
 
 	// NOTE: this prevents serving filenames that aren't at known roots
-	root, foundRoot := findRoot(ix, filename)
+	root, foundRoot := findRoot(ix, name)
 	if !foundRoot {
 		return notFoundBufedHttpErr
 	}
 
-	// TODO zips
-	info, err := os.Stat(filename)
+	// TODO zips?
+	info, err := os.Stat(name)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return notFoundBufedHttpErr
@@ -499,41 +535,6 @@ func handleFilepath(ctx *bufedHttpCtx) *bufedHttpErr {
 	}
 
 	qarg := ctx.r.FormValue("q")
-	breadcrumbs, err := collectBreadcrumbs(root, filename)
-	if err != nil {
-		return &bufedHttpErr{
-			status: http.StatusInternalServerError,
-			err:    fmt.Errorf("could not collect breadcrumbs: %w", err),
-		}
-	}
-
-	if info.IsDir() {
-		dirEntries, err := collectDirEntries(filename)
-		if err != nil {
-			return &bufedHttpErr{
-				status: http.StatusInternalServerError,
-				err:    err,
-			}
-		}
-		return ctx.renderTemplate("page.filepath", map[string]any{
-			"Query":       qarg,
-			"Breadcrumbs": breadcrumbs,
-			"DirEntries":  dirEntries,
-		})
-	}
-
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return &bufedHttpErr{
-			status: http.StatusInternalServerError,
-			err:    err,
-		}
-	}
-
-	if !isText(data) {
-		assert(false, fmt.Errorf("requested non text file. implmenet me serving it"))
-	}
-
 	var query *query
 	if qarg != "" {
 		query, err = compileQuery(qarg)
@@ -542,20 +543,32 @@ func handleFilepath(ctx *bufedHttpCtx) *bufedHttpErr {
 		}
 	}
 
-	sourceFile, err := readSourceFile(filename, query)
+	if info.IsDir() {
+		sourceDir, err := readDir(root, name, query)
+		if err != nil {
+			return &bufedHttpErr{
+				status: http.StatusInternalServerError,
+				err:    fmt.Errorf("could not read dir: %w", err),
+			}
+		}
+		return ctx.renderTemplate("page.filepath", map[string]any{
+			"Query":       qarg,
+			"SourceDir":   sourceDir,
+			"TimeElapsed": time.Since(start).Seconds(),
+		})
+	}
+
+	sourceFile, err := readAndMatchFile(root, name, query)
 	if err != nil {
 		return &bufedHttpErr{
 			status: http.StatusInternalServerError,
 			err:    err,
 		}
 	}
-
 	return ctx.renderTemplate("page.filepath", map[string]any{
 		"Query":       qarg,
-		"Breadcrumbs": breadcrumbs,
 		"SourceFile":  sourceFile,
-		// "MatchCount":  g.Matches,
-		// "TimeElapsed": time.Since(start).Seconds(),
+		"TimeElapsed": time.Since(start).Seconds(),
 	})
 }
 
