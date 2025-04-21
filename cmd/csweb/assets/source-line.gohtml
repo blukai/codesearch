@@ -1,0 +1,11 @@
+{{- /* args: LinePad, SourceLine */ -}}
+{{- define "component.source-line" -}}
+  {{- printf "%*d  " .LinePad .SourceLine.LineNo -}}
+  {{- $end := 0 -}}
+  {{- range $_, $loc := .SourceLine.PreciseMatchLocations -}}
+    {{- printf "%s" (slice $.SourceLine.Line $end (index $loc 0)) -}}
+    <mark>{{printf "%s" (slice $.SourceLine.Line (index $loc 0) (index $loc 1))}}</mark>
+    {{- $end = index $loc 1 -}}
+  {{- end -}}
+  {{- printf "%s" (slice .SourceLine.Line $end) -}}
+{{- end -}}

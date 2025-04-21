@@ -440,8 +440,10 @@ type GrepMatch struct {
 	PostContext [][]byte
 }
 
-func (g *Grep) ReaderSeq(r io.Reader) iter.Seq[GrepMatch] {
-	return func(yield func(GrepMatch) bool) {
+// NOTE: Line, PreContext and PostContext slices point into internal buffer;
+// if they need to be reused later they must be copied.
+func (g *Grep) ReaderSeq(r io.Reader) iter.Seq[*GrepMatch] {
+	return func(yield func(*GrepMatch) bool) {
 		if g.buf == nil {
 			g.buf = make([]byte, 1<<20)
 		}
@@ -498,7 +500,7 @@ func (g *Grep) ReaderSeq(r io.Reader) iter.Seq[GrepMatch] {
 				} else {
 					match.Line = buf[lineStart:lineEnd]
 				}
-				if !yield(match) {
+				if !yield(&match) {
 					return
 				}
 				if needLineNo {

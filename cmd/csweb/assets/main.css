@@ -110,6 +110,7 @@ a.file-header:hover {
 	width: 100%;
 	overflow: hidden;
 	padding: var(--space-s) 0;
+	box-shadow: 0 1px 0 0 var(--divider);
 }
 
 a.source-hunk {
@@ -125,9 +126,5 @@ a.source-hunk:hover {
 	display: block;
 	width: 100%;
 	padding: 0 var(--space-m);
-}
-
-.source-line:target {
-	background-color: var(--gray-4);
 }
 

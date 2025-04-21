@@ -1,11 +1,11 @@
 {{block "page.index" .}}
   {{template "layout.head" .}}
   {{if .Query}}
-    {{range $_, $file := .Files}}
-      {{$lastBreadcrumb := index $file.Breadcrumbs (sub (len $file.Breadcrumbs) 1)}}
+    {{range $_, $searchResult := .SearchResults}}
+      {{$lastBreadcrumb := index $searchResult.Breadcrumbs (sub (len $searchResult.Breadcrumbs) 1)}}
       {{$filename := printf "%s/%s" $lastBreadcrumb.Dirname $lastBreadcrumb.Basename}}
       <a href="{{$filename}}?q={{$.Query}}" class="file-header">
-        {{- range $_, $breadcrumb := $file.Breadcrumbs -}}
+        {{- range $_, $breadcrumb := $searchResult.Breadcrumbs -}}
           {{- if $breadcrumb.IsOutOfRoot -}}
             <span class="text-gray">/{{$breadcrumb.Basename}}</span>
           {{- else if $breadcrumb.IsDir -}}
@@ -15,18 +15,14 @@
           {{- end -}}
         {{- end -}}
       </a>
-      {{range $_, $match := $file.Matches}}
-        <a href="{{$filename}}?q={{$.Query}}#l{{$match.LineNo}}" class="source-hunk">
-          <div class="source-line">
-            {{- printf "%*d  " $.LinePad $match.LineNo -}}
-            {{- $end := 0 -}}
-            {{- range $_, $loc := $match.Locations -}}
-              {{- printf "%s" (slice $match.Line $end (index $loc 0)) -}}
-              <mark>{{printf "%s" (slice $match.Line (index $loc 0) (index $loc 1))}}</mark>
-              {{- $end = index $loc 1 -}}
-            {{- end -}}
-            {{- printf "%s" (slice $match.Line $end) -}}
-          </div>
+      {{range $_, $hunk := $searchResult.Hunks}}
+        {{$firstLine := index $hunk.Lines 0}}
+        <a href="{{$filename}}?q={{$.Query}}#l{{$firstLine.LineNo}}" class="source-hunk">
+          {{range $_, $line := $hunk.Lines}}
+            <div class="source-line">
+              {{- template "component.source-line" map "LinePad" $.LinePad "SourceLine" . -}}
+            </div>
+          {{end}}
         </a>
       {{end}}
     {{end}}

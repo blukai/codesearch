@@ -24,10 +24,6 @@ import (
 	"github.com/google/codesearch/regexp"
 )
 
-// TODO: generalize + reuse precise match template?
-// TODO: unfuck preciseGrepMatch, it is not as genral as i thought it would be
-// TODO: render one line of context around matches on search page
-// TODO: merge ~overlaping contexts in some way
 // TODO: experiment with full search history tracking and counting idea
 // TODO: render timings in footer
 // TODO: implement / search focus
@@ -191,30 +187,88 @@ func computeLinePad(maxLineNo int) int {
 	return linePad
 }
 
-// TODO: get rid of this. only usable in search results. factor this into
-// something like hunk + add support for pre and post context lines.
-type preciseGrepMatch struct {
-	Locations [][]int
-	regexp.GrepMatch
+type sourceLine struct {
+	Line                  []byte
+	LineNo                int
+	PreciseMatchLocations [][]int
 }
 
-func newPreciseGrepMatch(
-	src *regexp.GrepMatch,
-	query *query,
-) preciseGrepMatch {
-	dst := preciseGrepMatch{}
+type sourceHunk struct {
+	Lines []sourceLine
+}
 
-	dst.Locations = query.stdre.FindAllIndex(src.Line, -1)
-	assert(len(dst.Locations) > 0)
+// returns 0, false if contains no lines.
+func (h *sourceHunk) getLastLineNoAssumeSorted() (int, bool) {
+	if len(h.Lines) == 0 {
+		return 0, false
+	}
+	return h.Lines[len(h.Lines)-1].LineNo, true
+}
 
-	// NOTE: this function get's called from the loop, deep copy is the
-	// only way to get "current" line into dst.
-	dst.Line = make([]byte, len(src.Line))
-	copy(dst.Line, src.Line)
+func (h *sourceHunk) maybeAppendLineCopy(line []byte, lineNo int, query *query) {
+	if len(line) == 0 {
+		return
+	}
 
-	dst.LineNo = src.LineNo
+	lastLineNo, ok := h.getLastLineNoAssumeSorted()
+	if ok && lastLineNo >= lineNo {
+		return
+	}
 
-	return dst
+	sr := sourceLine{
+		Line:                  make([]byte, len(line)),
+		LineNo:                lineNo,
+		PreciseMatchLocations: query.stdre.FindAllIndex(line, -1),
+	}
+	copy(sr.Line, line)
+	h.Lines = append(h.Lines, sr)
+}
+
+type fileSearchResult struct {
+	Breadcrumbs []breadcrumb
+	Hunks       []sourceHunk
+}
+
+func (f *fileSearchResult) shouldStartNewHunk(grepMatch *regexp.GrepMatch) bool {
+	if len(f.Hunks) == 0 {
+		return true
+	}
+
+	lastHunk := &f.Hunks[len(f.Hunks)-1]
+	lastLineNo, ok := lastHunk.getLastLineNoAssumeSorted()
+	if !ok {
+		return false
+	}
+
+	lineNo := grepMatch.LineNo - len(grepMatch.PreContext)
+	gap := lineNo - lastLineNo
+	// NOCOMMIT: is this correct?
+	return gap > 0
+}
+
+func (f *fileSearchResult) appendGrepMatch(grepMatch *regexp.GrepMatch, query *query) {
+	if f.shouldStartNewHunk(grepMatch) {
+		initCap := len(grepMatch.PreContext) + 1 + len(grepMatch.PostContext)
+		f.Hunks = append(f.Hunks, sourceHunk{Lines: make([]sourceLine, 0, initCap)})
+	}
+
+	hunk := &f.Hunks[len(f.Hunks)-1]
+	lineNo := grepMatch.LineNo - len(grepMatch.PreContext)
+
+	// TODO: can stuff below be chained somehow?
+
+	for _, line := range grepMatch.PreContext {
+		hunk.maybeAppendLineCopy(line, lineNo, query)
+		lineNo += 1
+	}
+
+	hunk.maybeAppendLineCopy(grepMatch.Line, lineNo, query)
+	lineNo += 1
+
+	for _, line := range grepMatch.PostContext {
+		hunk.maybeAppendLineCopy(line, lineNo, query)
+		lineNo += 1
+	}
 }
 
 func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
@@ -230,21 +284,18 @@ func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
 		return newBadQueryBufedHttpErr(err)
 	}
 	g := regexp.Grep{
-		Regexp: query.re,
-		Limit:  10000,
-		N:      true,
+		Regexp:      query.re,
+		N:           true,
+		Limit:       10000,
+		PreContext:  1,
+		PostContext: 1,
 	}
 	ix := index.Open(index.File())
 	q := index.RegexpQuery(query.re.Syntax)
 	post := ix.PostingQuery(q)
 
-	type matchedFile struct {
-		Breadcrumbs []breadcrumb
-		Matches     []preciseGrepMatch
-	}
-
-	matchedFiles := make([]matchedFile, 0)
 	maxLineNo := 0
+	searchResults := make([]fileSearchResult, 0)
 
 	// 	var zipFile   string
 	// 	var zipReader *zip.ReadCloser
@@ -255,9 +306,9 @@ func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
 			break
 		}
 
-		filename := ix.Name(fileid).String()
-		matches := make([]preciseGrepMatch, 0)
+		searchResult := fileSearchResult{}
 
+		filename := ix.Name(fileid).String()
 		file, err := os.Open(filename)
 		if err != nil {
 			if i := strings.Index(filename, ".zip\x01"); i >= 0 {
@@ -295,24 +346,23 @@ func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
 			continue
 		}
 
-		for match := range g.ReaderSeq(file) {
-			maxLineNo = max(maxLineNo, match.LineNo)
-			matches = append(matches, newPreciseGrepMatch(&match, query))
+		for grepMatch := range g.ReaderSeq(file) {
+			searchResult.appendGrepMatch(grepMatch, query)
 		}
 
 		file.Close()
 
 		// TODO: collect grep errs and render them?
-		if err := g.Err(); err != nil {
+		err = g.Err()
+		if err != nil {
 			assert(false, fmt.Errorf("unimplemented"))
 		}
 
-		if len(matches) > 0 {
-			// TODO: might want to cache this
+		if len(searchResult.Hunks) > 0 {
 			root, foundRoot := findRoot(ix, filename)
 			assert(foundRoot)
 
-			breadcrumbs, err := collectBreadcrumbs(root, filename)
+			searchResult.Breadcrumbs, err = collectBreadcrumbs(root, filename)
 			if err != nil {
 				return &bufedHttpErr{
 					status: http.StatusInternalServerError,
@@ -320,18 +370,21 @@ func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
 				}
 			}
 
-			matchedFiles = append(matchedFiles, matchedFile{
-				Breadcrumbs: breadcrumbs,
-				Matches:     matches,
-			})
+			lastHunk := &searchResult.Hunks[len(searchResult.Hunks)-1]
+			lastHunkLastLineNo, ok := lastHunk.getLastLineNoAssumeSorted()
+			assert(ok)
+
+			maxLineNo = max(maxLineNo, lastHunkLastLineNo)
+			searchResults = append(searchResults, searchResult)
 		}
 	}
 
 	return ctx.renderTemplate("page.index", map[string]any{
-		"Query":       qarg,
-		"Files":       matchedFiles,
-		"LinePad":     computeLinePad(maxLineNo),
-		"MatchCount":  g.Matches,
+		"Query":         qarg,
+		"SearchResults": searchResults,
+		"LinePad":       computeLinePad(maxLineNo),
+		"MatchCount":    g.Matches,
+		// TODO: count actual search time?
 		"TimeElapsed": time.Since(start).Seconds(),
 	})
 }
@@ -371,12 +424,6 @@ func collectDirEntries(path string) ([]dirEntry, error) {
 		ret[i] = dirEntry{Name: it.Name()}
 	}
 	return ret, nil
-}
-
-type sourceLine struct {
-	Line                  []byte
-	LineNo                int
-	PreciseMatchLocations [][]int
 }
 
 type sourceFile struct {

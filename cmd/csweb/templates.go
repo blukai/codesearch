@@ -21,6 +21,16 @@ func initTemplate(fs fs.FS, patterns ...string) (*template.Template, error) {
 		"trimspace": strings.TrimSpace,
 		"add":       func(lhs, rhs int) int { return lhs + rhs },
 		"sub":       func(lhs, rhs int) int { return lhs - rhs },
+		"map": func(args ...any) map[string]any {
+			assert(len(args)%2 == 0)
+			ret := make(map[string]any, len(args)/2)
+			for i := 0; i < len(args); i += 2 {
+				key, ok := args[i].(string)
+				assert(ok)
+				ret[key] = args[i+1]
+			}
+			return ret
+		},
 	})
 
 	return t.ParseFS(fs, patterns...)
