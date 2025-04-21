@@ -7,6 +7,7 @@ package main
 import (
 	"bytes"
 	"embed"
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -14,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	stdregexp "regexp"
+	"regexp/syntax"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -71,13 +73,6 @@ var notFoundBufedHttpErr *bufedHttpErr = &bufedHttpErr{
 	err:    fmt.Errorf(http.StatusText(http.StatusNotFound)),
 }
 
-func newBadQueryBufedHttpErr(regexpCompileErr error) *bufedHttpErr {
-	return &bufedHttpErr{
-		status: http.StatusBadRequest,
-		err:    fmt.Errorf("bad query: %v", regexpCompileErr),
-	}
-}
-
 func (ctx *bufedHttpCtx) renderTemplate(name string, data any) *bufedHttpErr {
 	if err := templates.Render(&ctx.buf, name, data); err != nil {
 		return &bufedHttpErr{
@@ -100,22 +95,37 @@ func bufedHttpHandlerFunc(h func(*bufedHttpCtx) *bufedHttpErr) http.HandlerFunc 
 	}
 }
 
-// TODO: organize return into a tuple-like struct for convenience, to avoid a
-// need to carry two structs around both of which can be nil!
-func compileQuery(qarg string) (*regexp.Regexp, *stdregexp.Regexp, error) {
+type query struct {
+	re    *regexp.Regexp
+	stdre *stdregexp.Regexp
+}
+
+func compileQuery(qarg string) (*query, error) {
 	pat := "(?m)" + qarg
 	re, err := regexp.Compile(pat)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	// NOTE: regex err was checked above ^
 	stdre := stdregexp.MustCompile(re.Syntax.String())
-	return re, stdre, nil
+	return &query{re: re, stdre: stdre}, nil
 }
 
-// func getQueryString(re *regexp.Regexp) string {
-// 	return strings.TrimPrefix(re.String(), "(?m)")
-// }
+func getQueryExpr(expr string) string {
+	return strings.TrimPrefix(expr, "(?m)")
+}
+
+func newBadQueryBufedHttpErr(err error) *bufedHttpErr {
+	var syntaxErr *syntax.Error
+	if errors.As(err, &syntaxErr) {
+		syntaxErr.Expr = getQueryExpr(syntaxErr.Expr)
+		err = syntaxErr
+	}
+	return &bufedHttpErr{
+		status: http.StatusBadRequest,
+		err:    fmt.Errorf("bad query: %v", err),
+	}
+}
 
 func findRoot(ix *index.Index, name string) (string, bool) {
 	root := ""
@@ -190,11 +200,11 @@ type preciseGrepMatch struct {
 
 func newPreciseGrepMatch(
 	src *regexp.GrepMatch,
-	stdre *stdregexp.Regexp,
+	query *query,
 ) preciseGrepMatch {
 	dst := preciseGrepMatch{}
 
-	dst.Locations = stdre.FindAllIndex(src.Line, -1)
+	dst.Locations = query.stdre.FindAllIndex(src.Line, -1)
 	assert(len(dst.Locations) > 0)
 
 	// NOTE: this function get's called from the loop, deep copy is the
@@ -215,41 +225,18 @@ func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
 
 	start := time.Now()
 
-	re, stdre, err := compileQuery(qarg)
+	query, err := compileQuery(qarg)
 	if err != nil {
 		return newBadQueryBufedHttpErr(err)
 	}
 	g := regexp.Grep{
-		Regexp: re,
+		Regexp: query.re,
 		Limit:  10000,
 		N:      true,
 	}
-	var fre *regexp.Regexp
-	if farg := ctx.r.FormValue("f"); farg != "" {
-		fre, err = regexp.Compile(farg)
-		if err != nil {
-			return &bufedHttpErr{
-				status: http.StatusBadRequest,
-				err:    fmt.Errorf("bad -f flag: %v", err),
-			}
-		}
-	}
-
 	ix := index.Open(index.File())
-	q := index.RegexpQuery(re.Syntax)
+	q := index.RegexpQuery(query.re.Syntax)
 	post := ix.PostingQuery(q)
-
-	if fre != nil {
-		filtered := make([]int, 0, len(post))
-		for _, fileid := range post {
-			name := ix.Name(fileid)
-			if fre.MatchString(name.String(), true, true) == -1 {
-				continue
-			}
-			filtered = append(filtered, fileid)
-		}
-		post = filtered
-	}
 
 	type matchedFile struct {
 		Breadcrumbs []breadcrumb
@@ -310,7 +297,7 @@ func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
 
 		for match := range g.ReaderSeq(file) {
 			maxLineNo = max(maxLineNo, match.LineNo)
-			matches = append(matches, newPreciseGrepMatch(&match, stdre))
+			matches = append(matches, newPreciseGrepMatch(&match, query))
 		}
 
 		file.Close()
@@ -399,7 +386,7 @@ type sourceFile struct {
 
 var nl = []byte("\n")
 
-func readSourceFile(filename string, re *regexp.Regexp, stdre *stdregexp.Regexp) (*sourceFile, error) {
+func readSourceFile(filename string, query *query) (*sourceFile, error) {
 	// TODO: protect from huge files
 	data, err := os.ReadFile(filename)
 	if err != nil {
@@ -415,10 +402,9 @@ func readSourceFile(filename string, re *regexp.Regexp, stdre *stdregexp.Regexp)
 		sourceLine := sourceLine{LineNo: lineNo}
 		sourceLine.Line, data, _ = bytes.Cut(data, nl)
 
-		if re != nil {
-			assert(stdre != nil)
-			if re.Match(sourceLine.Line, lineNo == 1, true) != -1 {
-				sourceLine.PreciseMatchLocations = stdre.FindAllIndex(sourceLine.Line, -1)
+		if query != nil {
+			if query.re.Match(sourceLine.Line, lineNo == 1, true) != -1 {
+				sourceLine.PreciseMatchLocations = query.stdre.FindAllIndex(sourceLine.Line, -1)
 			}
 		}
 
@@ -492,16 +478,15 @@ func handleFilepath(ctx *bufedHttpCtx) *bufedHttpErr {
 		assert(false, fmt.Errorf("requested non text file. implmenet me serving it"))
 	}
 
-	var re *regexp.Regexp
-	var stdre *stdregexp.Regexp
+	var query *query
 	if qarg != "" {
-		re, stdre, err = compileQuery(qarg)
+		query, err = compileQuery(qarg)
 		if err != nil {
 			return newBadQueryBufedHttpErr(err)
 		}
 	}
 
-	sourceFile, err := readSourceFile(filename, re, stdre)
+	sourceFile, err := readSourceFile(filename, query)
 	if err != nil {
 		return &bufedHttpErr{
 			status: http.StatusInternalServerError,
