@@ -4,7 +4,7 @@
     <div class="file-header">
       {{template "page.filepath__breadcrumbs" map "Breadcrumbs" .SourceDir.Breadcrumbs "Query" .Query}}
     </div>
-    <main>
+    <main tabIndex="-1">
       {{range $_, $entry := .SourceDir.Entries}}
         <div class="file-header">
           {{if $entry.IsDir}}
@@ -25,8 +25,7 @@
       {{template "page.filepath__breadcrumbs" map "Breadcrumbs" .SourceFile.Breadcrumbs "Query" .Query}}
       {{if and .Query .SourceFile.MatchCount}}
         <div class="file-header__source-nav">
-          <span id="targeted-line-no">?</span>
-          of
+          <span id="targeted-line-no"></span>
           {{.SourceFile.MatchCount}}
           {{selectplural .SourceFile.MatchCount "match" "matches"}}
           <button id="to-prev-match" disabled="true">/\</button>
@@ -34,7 +33,7 @@
         </div>
       {{end}}
     </div>
-    <main>
+    <main tabIndex="-1">
       <div class="source-hunk" style="--line-pad: {{.SourceFile.LinePad}}ch">
         {{range $_, $line := .SourceFile.Lines}}
           {{- /* class="source-line" */ -}}

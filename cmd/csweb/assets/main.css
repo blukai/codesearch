@@ -157,6 +157,7 @@ a.source-hunk:focus {
 	display: block;
 	width: 100%;
 	padding: 0 var(--line-px);
+	scroll-margin-top: 1rem;
 
 	/* line-no positioning */
 	position: relative;
@@ -165,9 +166,7 @@ a.source-hunk:focus {
 	counter-increment: line-no;
 }
 
-/* .source-line:target */
-.source-hunk > div:target {
-	scroll-margin-top: 1rem;
+.source-line--selected {
 	background: var(--bg-attention-muted);
 }
 

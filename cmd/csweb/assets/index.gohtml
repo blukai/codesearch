@@ -6,12 +6,12 @@
       in {{len .SearchResults}} {{selectplural (len .SearchResults) "file" "files"}}
       ({{printf "%.3fs" .TimeElapsed}})
     </div>
-    <main>
-      {{range $_, $searchResult := .SearchResults}}
+    <main tabIndex="-1">
+      {{range $i, $searchResult := .SearchResults}}
         {{$lastBreadcrumb := index $searchResult.Breadcrumbs (sub (len $searchResult.Breadcrumbs) 1)}}
         {{$filename := printf "%s/%s" $lastBreadcrumb.Dirname $lastBreadcrumb.Basename}}
         <div class="file-header">
-          <a href="{{$filename}}?q={{$.Query}}">
+          <a id="search-result-{{$i}}" href="{{$filename}}?q={{$.Query}}">
             {{- range $_, $breadcrumb := $searchResult.Breadcrumbs -}}
               {{- if $breadcrumb.IsOutOfRoot -}}
                 <span class="text-disabled">/{{$breadcrumb.Basename}}</span>
