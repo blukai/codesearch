@@ -37,22 +37,27 @@
 
 /* https://github.com/AllThingsSmitty/css-protips?tab=readme-ov-file#inherit-box-sizing */
 html {
-  box-sizing: border-box;
+	box-sizing: border-box;
 }
 *,
 *::before,
 *::after {
-  box-sizing: inherit;
+	box-sizing: inherit;
 }
 
 html {
 	color-scheme: dark;
-	height: 100%;
 	font-family: monospace;
 }
 
+html,
 body {
-	min-height: 100%;
+	height: 100%;
+}
+
+body {
+	display: flex;
+	flex-direction: column;
 	margin: 0;
 	padding: 0;
 	background: var(--bg);
@@ -60,24 +65,9 @@ body {
 	line-height: 1.6;
 }
 
-body {
-	display: flex;
-	flex-direction: column;
-}
-
 main {
 	flex-grow: 1;
-}
-
-header {
-	display: flex;
-	align-items: center;
-	padding: 0 var(--space-m);
-	box-shadow: 0 1px 0 0 var(--divider);
-	background: var(--bg);
-	height: var(--header-height);
-	position: sticky;
-	top: 0;
+	overflow-y: auto;
 }
 
 a {
@@ -93,19 +83,25 @@ mark {
 .search-form {
 	display: flex;
 	width: 100%;
+	padding: var(--space-m);
+	background: var(--bg);
+	border-bottom: 1px solid var(--divider);
 }
 
 .search-form__input {
 	flex-grow: 1;
-	margin-right: var(--space-m);
+	background: none;
+	border: 1px solid var(--divider);
+	padding: var(--space-s) var(--space-m);
+}
+
+.search-form__button {
+	display: none;
 }
 
 .search-results-header {
 	padding: var(--space-s) var(--space-m);
-	box-shadow: 0 1px 0 0 var(--divider);
-	background: var(--bg);
-	position: sticky;
-	top: calc(var(--header-height) + 1px);
+	border-bottom: 1px solid var(--divider);
 }
 
 .text-disabled {
@@ -115,10 +111,9 @@ mark {
 .file-header {
 	display: flex;
 	align-items: center;
-	box-shadow: 0 1px 0 0 var(--divider), 0 -1px 0 0 var(--divider);
-	padding: 0 var(--space-m);
+	padding: var(--space-s) var(--space-m);
 	background: var(--bg-muted);
-	height: var(--file-header-height);
+	border-bottom: 1px solid var(--divider);
 }
 
 .file-header a:hover,
@@ -131,17 +126,20 @@ a.file-header:hover {
 	flex-grow: 0;
 }
 
-.file-header--sticky {
-	position: sticky;
-	top: calc(var(--header-height) + 1px);
-}
-
 .source-hunk {
 	display: block;
 	width: 100%;
 	overflow: hidden;
 	padding: var(--space-s) 0;
-	box-shadow: 0 1px 0 0 var(--divider);
+	border-bottom: 1px solid var(--divider);
+
+	/* line-no shenanigans */
+	--line-px: var(--space-m);
+	--line-no-px: 1ch;
+	--line-no-w: calc(var(--line-px) + var(--line-no-px) * 2 + var(--line-pad));
+	--line-pl: calc(var(--line-px) + var(--line-no-w));
+
+	counter-reset: line-no calc(var(--line-no-reset, 1) - 1);
 }
 
 a.source-hunk {
@@ -153,33 +151,37 @@ a.source-hunk:focus {
 	background: var(--bg-emphasis);
 }
 
-.source-line {
+/* .source-line */
+.source-hunk > div {
 	white-space: pre-wrap;
 	display: block;
 	width: 100%;
-	padding: 0 var(--space-m);
-	/* NOTE: --line-pad is set through the style attribute in a parent
-	* element; --space-m, is the x padding; 1ch is margin-right from
-	* .source-line__line-no */
-	text-indent: calc(var(--line-pad) + var(--space-m) + 1ch) hanging;
+	padding: 0 var(--line-px);
+
+	/* line-no positioning */
+	position: relative;
+	padding-left: var(--line-pl);
+
+	counter-increment: line-no;
 }
 
-.source-line:target {
-	scroll-margin-top: calc(var(--header-height) + var(--file-header-height) + 1rem);
+/* .source-line:target */
+.source-hunk > div:target {
+	scroll-margin-top: 1rem;
 	background: var(--bg-attention-muted);
 }
 
-.source-line__line-no {
-	display: inline-block;
-	box-shadow: 1px 0 0 0 var(--divider);
-	margin-right: 1ch;
-	padding-right: 1ch;
-}
-
-.source-line__line-no::before {
+/* .source-line::before */
+.source-hunk > div::before {
+	content: counter(line-no);
+	border-right: 1px solid var(--divider);
 	color: var(--fg-disabled);
-	content: attr(data-line-no);
-	width: var(--line-pad);
-	display: inline-block;
 	text-align: right;
+
+	/* positioning */
+	position: absolute;
+	padding: 0 var(--line-no-px);
+	width: var(--line-no-w);
+	height: 100%;
+	left: 0;
 }

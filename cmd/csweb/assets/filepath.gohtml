@@ -1,25 +1,27 @@
 {{block "page.filepath" .}}
   {{template "layout.head" .}}
   {{if .SourceDir}}
-    <div class="file-header file-header--sticky">
+    <div class="file-header">
       {{template "page.filepath__breadcrumbs" map "Breadcrumbs" .SourceDir.Breadcrumbs "Query" .Query}}
     </div>
-    {{range $_, $entry := .SourceDir.Entries}}
-      <div class="file-header">
-        {{if $entry.IsDir}}
-          {{/* NOTE: wihtut trailing slash (/) dot-slash (./) will not work */}}
-          <a href="./{{$entry.Name}}/?q={{$.Query}}">
-            {{$entry.Name}}
-          </a>
-        {{else}}
-          <a href="./{{$entry.Name}}?q={{$.Query}}">
-            {{$entry.Name}}
-          </a>
-        {{end}}
-      </div>
-    {{end}}
+    <main>
+      {{range $_, $entry := .SourceDir.Entries}}
+        <div class="file-header">
+          {{if $entry.IsDir}}
+            {{/* NOTE: wihtut trailing slash (/) dot-slash (./) will not work */}}
+            <a href="./{{$entry.Name}}/?q={{$.Query}}">
+              {{$entry.Name}}
+            </a>
+          {{else}}
+            <a href="./{{$entry.Name}}?q={{$.Query}}">
+              {{$entry.Name}}
+            </a>
+          {{end}}
+        </div>
+      {{end}}
+    </main>
   {{else if .SourceFile}}
-    <div class="file-header file-header--sticky">
+    <div class="file-header">
       {{template "page.filepath__breadcrumbs" map "Breadcrumbs" .SourceFile.Breadcrumbs "Query" .Query}}
       {{if and .Query .SourceFile.MatchCount}}
         <div class="file-header__source-nav">
@@ -32,13 +34,16 @@
         </div>
       {{end}}
     </div>
-    <div class="source-hunk" style="--line-pad: {{.SourceFile.LinePad}}ch">
-      {{range $_, $line := .SourceFile.Lines}}
-        <div id="l{{$line.LineNo}}" {{if $line.PreciseMatchLocations}}data-matched="true"{{end}} class="source-line">
-          {{- template "component.source-line" map "LinePad" $.SourceFile.LinePad "SourceLine" . -}}
-        </div>
-      {{end}}
-    </div>
+    <main>
+      <div class="source-hunk" style="--line-pad: {{.SourceFile.LinePad}}ch">
+        {{range $_, $line := .SourceFile.Lines}}
+          {{- /* class="source-line" */ -}}
+          <div id="l{{$line.LineNo}}" {{if $line.PreciseMatchLocations}}data-matched="true"{{end}}>
+            {{- template "component.source-line" . -}}
+          </div>
+        {{end}}
+      </div>
+    </main>
   {{end}}
   {{template "layout.foot" .}}
 {{end}}

@@ -9,13 +9,11 @@
       <header>
         <form action="/" class="search-form">
           <input type="text" name="q" value="{{.Query}}" placeholder="pattern" class="search-form__input">
-          <button type="submit">submit</button>
+          <button type="submit" class="search-form__button">submit</button>
         </form>
       </header>
-      <main>
 {{end}}
 {{define "layout.foot"}}
-      </main>
       <script src="/assets/main.js"></script>
     </body>
   </html>
