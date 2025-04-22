@@ -27,6 +27,8 @@ import (
 // TODO: experiment with full search history tracking and counting idea
 // TODO: implement / search focus
 // TODO: when viewing a file - show all matches in a sidebar or something
+// TODO: add support for -f flag
+// TODO: consider supporting -i, -l, -h, -b, -a, -c flags
 
 //go:embed assets
 var embeddedAssets embed.FS
@@ -305,10 +307,6 @@ func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
 	maxLineNo := 0
 	searchResults := make([]fileSearchResult, 0)
 
-	// 	var zipFile   string
-	// 	var zipReader *zip.ReadCloser
-	// 	var zipMap    map[string]*zip.File
-
 	for _, fileid := range post {
 		if g.Limited {
 			break
@@ -321,36 +319,7 @@ func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
 		if err != nil {
 			if i := strings.Index(filename, ".zip\x01"); i >= 0 {
 				assert(false, fmt.Errorf("TODO: handle zips"))
-				// zfile, zname := name[:i+4], name[i+5:]
-				// if zfile != zipFile {
-				// 	if zipReader != nil {
-				// 		zipReader.Close()
-				// 		zipMap = nil
-				// 	}
-				// 	zipFile = zfile
-				// 	zipReader, err = zip.OpenReader(zfile)
-				// 	if err != nil {
-				// 		zipReader = nil
-				// 	}
-				// 	if zipReader != nil {
-				// 		zipMap = make(map[string]*zip.File)
-				// 		for _, file := range zipReader.File {
-				// 			zipMap[file.Name] = file
-				// 		}
-				// 	}
-				// }
-				// file := zipMap[zname]
-				// if file != nil {
-				// 	r, err := file.Open()
-				// 	if err != nil {
-				// 		continue
-				// 	}
-				// 	renderFileMatches(w, r, name, &g, stdre)
-				// 	r.Close()
-				// 	continue
-				// }
 			}
-
 			continue
 		}
 
@@ -363,7 +332,7 @@ func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
 		// TODO: collect grep errs and render them?
 		err = g.Err()
 		if err != nil {
-			assert(false, fmt.Errorf("unimplemented"))
+			assert(false, fmt.Errorf("TODO: accumulate and report grep errs?"))
 		}
 
 		if len(searchResult.Hunks) > 0 {
@@ -472,7 +441,7 @@ func readAndMatchFile(root, name string, query *query) (*sourceFile, error) {
 	if !isText(data) {
 		// TODO: zips?
 		// TODO: report error
-		assert(false, fmt.Errorf("requested non text file. implmenet me serving it"))
+		assert(false, fmt.Errorf("requested non text file"))
 	}
 
 	breadcrumbs, err := collectBreadcrumbs(root, name)
