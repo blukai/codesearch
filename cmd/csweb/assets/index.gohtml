@@ -1,11 +1,11 @@
 {{block "page.index" .}}
   {{template "layout.head" .}}
-  <div class="search-results-header">
-    {{.MatchCount}} {{selectplural .MatchCount "match" "matches"}}
-    in {{len .SearchResults}} {{selectplural (len .SearchResults) "file" "files"}}
-    ({{printf "%.3fs" .TimeElapsed}})
-  </div>
   {{if .Query}}
+    <div class="search-results-header">
+      {{.MatchCount}} {{selectplural .MatchCount "match" "matches"}}
+      in {{len .SearchResults}} {{selectplural (len .SearchResults) "file" "files"}}
+      ({{printf "%.3fs" .TimeElapsed}})
+    </div>
     {{range $_, $searchResult := .SearchResults}}
       {{$lastBreadcrumb := index $searchResult.Breadcrumbs (sub (len $searchResult.Breadcrumbs) 1)}}
       {{$filename := printf "%s/%s" $lastBreadcrumb.Dirname $lastBreadcrumb.Basename}}
