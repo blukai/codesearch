@@ -126,7 +126,7 @@ a.file-header:hover {
 	text-decoration: underline;
 }
 
-.file-header__search-results {
+.file-header__source-nav {
 	margin-left: auto;
 	flex-grow: 0;
 }

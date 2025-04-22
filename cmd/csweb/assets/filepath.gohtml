@@ -21,15 +21,20 @@
   {{else if .SourceFile}}
     <div class="file-header file-header--sticky">
       {{template "page.filepath__breadcrumbs" map "Breadcrumbs" .SourceFile.Breadcrumbs "Query" .Query}}
-      {{if .Query}}
-        <div class="file-header__search-results">
-          {{.SourceFile.MatchCount}} {{selectplural .SourceFile.MatchCount "match" "matches"}}
+      {{if and .Query .SourceFile.MatchCount}}
+        <div class="file-header__source-nav">
+          <span id="targeted-line-no">?</span>
+          of
+          {{.SourceFile.MatchCount}}
+          {{selectplural .SourceFile.MatchCount "match" "matches"}}
+          <button id="to-prev-match" disabled="true">/\</button>
+          <button id="to-next-match" disabled="true">\/</button>
         </div>
       {{end}}
     </div>
     <div class="source-hunk">
       {{range $_, $line := .SourceFile.Lines}}
-        <div id="l{{$line.LineNo}}" class="source-line">
+        <div id="l{{$line.LineNo}}" {{if $line.PreciseMatchLocations}}data-matched="true"{{end}} class="source-line">
           {{- template "component.source-line" map "LinePad" $.SourceFile.LinePad "SourceLine" . -}}
         </div>
       {{end}}
