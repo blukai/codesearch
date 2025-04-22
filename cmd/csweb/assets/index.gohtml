@@ -23,7 +23,11 @@
         </a>
       </div>
       {{range $_, $hunk := $searchResult.Hunks}}
-        <a href="{{$filename}}?q={{$.Query}}#l{{$hunk.FirstNonContextLineNo}}" class="source-hunk">
+        <a
+          href="{{$filename}}?q={{$.Query}}#l{{$hunk.FirstNonContextLineNo}}"
+          class="source-hunk"
+          style="--line-pad: {{$.LinePad}}ch"
+        >
           {{range $_, $line := $hunk.Lines}}
             <div class="source-line">
               {{- template "component.source-line" map "LinePad" $.LinePad "SourceLine" . -}}

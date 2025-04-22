@@ -154,10 +154,14 @@ a.source-hunk:focus {
 }
 
 .source-line {
-	white-space: pre;
+	white-space: pre-wrap;
 	display: block;
 	width: 100%;
 	padding: 0 var(--space-m);
+	/* NOTE: --line-pad is set through the style attribute in a parent
+	* element; --space-m, is the x padding; 1ch is margin-right from
+	* .source-line__line-no */
+	text-indent: calc(var(--line-pad) + var(--space-m) + 1ch) hanging;
 }
 
 .source-line:target {
@@ -175,4 +179,7 @@ a.source-hunk:focus {
 .source-line__line-no::before {
 	color: var(--fg-disabled);
 	content: attr(data-line-no);
+	width: var(--line-pad);
+	display: inline-block;
+	text-align: right;
 }

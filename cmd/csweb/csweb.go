@@ -183,9 +183,7 @@ func collectBreadcrumbs(root, name string) ([]breadcrumb, error) {
 }
 
 func computeLinePad(maxLineNo int) int {
-	linePad := len(fmt.Sprintf("%d", maxLineNo))
-	linePad = (linePad+2+7)&^7 - 2
-	return linePad
+	return len(fmt.Sprintf("%d", maxLineNo)) + 1
 }
 
 type sourceLine struct {

@@ -1,6 +1,7 @@
-{{- /* args: LinePad, SourceLine */ -}}
+{{- /* NOTE: parent element must contain --line-pad css variable */ -}}
+{{- /* ARGS: LinePad, SourceLine */ -}}
 {{- define "component.source-line" -}}
-  <span class="source-line__line-no" data-line-no="{{printf "%*d" .LinePad .SourceLine.LineNo}}"></span>
+  <span class="source-line__line-no" data-line-no="{{.SourceLine.LineNo}}"></span>
   {{- $end := 0 -}}
   {{- range $_, $loc := .SourceLine.PreciseMatchLocations -}}
     {{- printf "%s" (slice $.SourceLine.Line $end (index $loc 0)) -}}

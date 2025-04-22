@@ -32,7 +32,7 @@
         </div>
       {{end}}
     </div>
-    <div class="source-hunk">
+    <div class="source-hunk" style="--line-pad: {{.SourceFile.LinePad}}ch">
       {{range $_, $line := .SourceFile.Lines}}
         <div id="l{{$line.LineNo}}" {{if $line.PreciseMatchLocations}}data-matched="true"{{end}} class="source-line">
           {{- template "component.source-line" map "LinePad" $.SourceFile.LinePad "SourceLine" . -}}
