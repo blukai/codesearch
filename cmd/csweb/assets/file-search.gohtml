@@ -1,0 +1,43 @@
+{{- /* ARGS: map of Query, FileSearch */ -}}
+{{define "component.file-search"}}
+  <div class="section-header">
+    {{.FileSearch.MatchCount}} {{selectplural .FileSearch.MatchCount "match" "matches"}}
+    in {{len .FileSearch.Results}} {{selectplural (len .FileSearch.Results) "file" "files"}}
+    ({{printf "%.3fs" .FileSearch.TimeElapsed}})
+  </div>
+  <div class="main-content-wrapper">
+    {{range $i, $result := .FileSearch.Results}}
+      {{$lastBreadcrumb := index $result.Breadcrumbs (sub (len $result.Breadcrumbs) 1)}}
+      {{$filename := printf "%s/%s" $lastBreadcrumb.Dirname $lastBreadcrumb.Basename}}
+      <div data-filename="{{$filename}}">
+        <div class="section-header file-header">
+          <a id="search-result-{{$i}}" href="{{$filename}}?q={{$.Query}}">
+            {{- range $_, $breadcrumb := $result.Breadcrumbs -}}
+              {{- if $breadcrumb.IsOutOfRoot -}}
+                <span class="text-disabled">/{{$breadcrumb.Basename}}</span>
+              {{- else if $breadcrumb.IsDir -}}
+                /{{$breadcrumb.Basename}}
+              {{- else -}}
+                /<b>{{$breadcrumb.Basename}}</b>
+              {{- end -}}
+            {{- end -}}
+          </a>
+        </div>
+        {{range $_, $hunk := $result.Hunks}}
+          <a
+            href="{{$filename}}?q={{$.Query}}#l{{index $hunk.MatchedLineNos 0}}"
+            class="source-hunk"
+            style="--line-pad: {{$.FileSearch.LinePad}}ch; --line-no-reset: {{(index $hunk.Lines 0).LineNo}}"
+          >
+            {{range $_, $line := $hunk.Lines}}
+              {{- /* class="source-line" */ -}}
+              <div{{if $line.PreciseMatchLocations}} data-fsl-matched="true"{{end}}>
+                {{- template "component.source-line" . -}}
+              </div>
+            {{end}}
+          </a>
+        {{end}}
+      </div>
+    {{end}}
+  </div>
+{{end}}

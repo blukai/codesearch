@@ -1,61 +1,34 @@
 {{block "page.filepath" .}}
   {{template "layout.head" .}}
-  {{if .SourceDir}}
-    <div class="file-header">
-      {{template "page.filepath__breadcrumbs" map "Breadcrumbs" .SourceDir.Breadcrumbs "Query" .Query}}
+  <div class="filepath-panels-wrapper">
+    <div class="filepath-panels-wrapper__file-search">
+      {{template "component.file-search" .}}
     </div>
-    <main tabIndex="-1">
-      {{range $_, $entry := .SourceDir.Entries}}
-        <div class="file-header">
-          {{if $entry.IsDir}}
-            {{/* NOTE: wihtut trailing slash (/) dot-slash (./) will not work */}}
-            <a href="./{{$entry.Name}}/?q={{$.Query}}">
-              {{$entry.Name}}
-            </a>
-          {{else}}
-            <a href="./{{$entry.Name}}?q={{$.Query}}">
-              {{$entry.Name}}
-            </a>
-          {{end}}
-        </div>
-      {{end}}
-    </main>
-  {{else if .SourceFile}}
-    <div class="file-header">
-      {{template "page.filepath__breadcrumbs" map "Breadcrumbs" .SourceFile.Breadcrumbs "Query" .Query}}
-      {{if and .Query .SourceFile.MatchCount}}
-        <div class="file-header__source-nav">
-          <span id="targeted-line-no"></span>
-          {{.SourceFile.MatchCount}}
-          {{selectplural .SourceFile.MatchCount "match" "matches"}}
-          <button id="to-prev-match" disabled="true">/\</button>
-          <button id="to-next-match" disabled="true">\/</button>
-        </div>
-      {{end}}
-    </div>
-    <main tabIndex="-1">
-      <div class="source-hunk" style="--line-pad: {{.SourceFile.LinePad}}ch">
-        {{range $_, $line := .SourceFile.Lines}}
-          {{- /* class="source-line" */ -}}
-          <div id="l{{$line.LineNo}}" {{if $line.PreciseMatchLocations}}data-matched="true"{{end}}>
-            {{- template "component.source-line" . -}}
+    {{if .SourceDir}}
+      <div class="section-header file-header">
+        {{template "component.breadcrumbs" map "Breadcrumbs" .SourceDir.Breadcrumbs "Query" .Query}}
+      </div>
+      <div class="main-content-wrapper">
+        {{range $_, $entry := .SourceDir.Entries}}
+          <div class="section-header file-header">
+            {{if $entry.IsDir}}
+              {{/* NOTE: wihtut trailing slash (/) dot-slash (./) will not work */}}
+              <a href="./{{$entry.Name}}/?q={{$.Query}}">
+                {{$entry.Name}}
+              </a>
+            {{else}}
+              <a href="./{{$entry.Name}}?q={{$.Query}}">
+                {{$entry.Name}}
+              </a>
+            {{end}}
           </div>
         {{end}}
       </div>
-    </main>
-  {{end}}
+    {{else if .SourceFile}}
+      <div class="filepath-panels-wrapper__source-file">
+        {{template "component.source-file" map "Breadcrumbs" .SourceDir.Breadcrumbs "Query" .Query "SourceFile" .SourceFile}}
+      </div>
+    {{end}}
+  </div>
   {{template "layout.foot" .}}
-{{end}}
-{{define "page.filepath__breadcrumbs"}}
-  {{- range $_, $breadcrumb := .Breadcrumbs -}}
-    {{- $filename := printf "%s/%s" $breadcrumb.Dirname $breadcrumb.Basename -}}
-    {{- if $breadcrumb.IsOutOfRoot -}}
-      <span class="text-disabled">/{{$breadcrumb.Basename}}</span>
-    {{- else if $breadcrumb.IsDir -}}
-      {{- /* NOTE: wihtut trailing slash (/) dot-slash (./) will not work */ -}}
-      <span class="text-disabled">/</span><a href="{{$filename}}/?q={{$.Query}}">{{$breadcrumb.Basename}}</a>
-    {{- else -}}
-      <span class="text-disabled">/</span><a href="{{$filename}}?q={{$.Query}}"><b>{{$breadcrumb.Basename}}</b></a>
-    {{- end -}}
-  {{- end -}}
 {{end}}

@@ -25,8 +25,6 @@ import (
 )
 
 // TODO: experiment with full search history tracking and counting idea
-// TODO: implement / search focus
-// TODO: when viewing a file - show all matches in a sidebar or something
 // TODO: add support for -f flag
 // TODO: consider supporting -i, -l, -h, -b, -a, -c flags
 
@@ -95,6 +93,7 @@ func bufedHttpHandlerFunc(h func(*bufedHttpCtx) *bufedHttpErr) http.HandlerFunc 
 type query struct {
 	re    *regexp.Regexp
 	stdre *stdregexp.Regexp
+	g     regexp.Grep
 }
 
 func compileQuery(qarg string) (*query, error) {
@@ -103,9 +102,21 @@ func compileQuery(qarg string) (*query, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	// NOTE: regex err was checked above ^
 	stdre := stdregexp.MustCompile(re.Syntax.String())
-	return &query{re: re, stdre: stdre}, nil
+
+	g := regexp.Grep{
+		Regexp: re,
+		N:      true,
+		// TODO: make limit configurable
+		Limit: 10000,
+		// TODO: make context size configurable
+		PreContext:  1,
+		PostContext: 1,
+	}
+
+	return &query{re: re, stdre: stdre, g: g}, nil
 }
 
 func getQueryExpr(expr string) string {
@@ -193,9 +204,8 @@ type sourceLine struct {
 }
 
 type sourceHunk struct {
-	Lines []sourceLine
-	// NOTE: make sure to init this with -1
-	FirstNonContextLineNo int
+	Lines          []sourceLine
+	MatchedLineNos []int
 }
 
 // returns 0, false if contains no lines.
@@ -223,8 +233,8 @@ func (h *sourceHunk) maybeAppendLineCopy(line []byte, lineNo int, query *query) 
 	}
 	copy(sr.Line, line)
 
-	if h.FirstNonContextLineNo == -1 && len(sr.PreciseMatchLocations) > 0 {
-		h.FirstNonContextLineNo = lineNo
+	if len(sr.PreciseMatchLocations) > 0 {
+		h.MatchedLineNos = append(h.MatchedLineNos, lineNo)
 	}
 
 	h.Lines = append(h.Lines, sr)
@@ -253,10 +263,9 @@ func (f *fileSearchResult) shouldStartNewHunk(grepMatch *regexp.GrepMatch) bool 
 
 func (f *fileSearchResult) appendGrepMatch(grepMatch *regexp.GrepMatch, query *query) {
 	if f.shouldStartNewHunk(grepMatch) {
-		initCap := len(grepMatch.PreContext) + 1 + len(grepMatch.PostContext)
 		f.Hunks = append(f.Hunks, sourceHunk{
-			Lines:                 make([]sourceLine, 0, initCap),
-			FirstNonContextLineNo: -1,
+			Lines:          make([]sourceLine, 0, len(grepMatch.PreContext)+1+len(grepMatch.PostContext)),
+			MatchedLineNos: make([]int, 0, 1),
 		})
 	}
 
@@ -279,38 +288,28 @@ func (f *fileSearchResult) appendGrepMatch(grepMatch *regexp.GrepMatch, query *q
 	}
 }
 
-func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
-	qarg := ctx.r.FormValue("q")
-	if qarg == "" {
-		return ctx.renderTemplate("page.index", nil)
-	}
+type fileSearch struct {
+	Results     []fileSearchResult
+	MatchCount  int
+	LinePad     int
+	TimeElapsed float64
+}
 
+func searchFiles(query *query, ix *index.Index) (*fileSearch, error) {
 	start := time.Now()
 
-	query, err := compileQuery(qarg)
-	if err != nil {
-		return newBadQueryBufedHttpErr(err)
-	}
-	g := regexp.Grep{
-		Regexp:      query.re,
-		N:           true,
-		Limit:       10000,
-		PreContext:  1,
-		PostContext: 1,
-	}
-	ix := index.Open(index.File())
 	q := index.RegexpQuery(query.re.Syntax)
 	post := ix.PostingQuery(q)
 
 	maxLineNo := 0
-	searchResults := make([]fileSearchResult, 0)
+	ret := fileSearch{Results: make([]fileSearchResult, 0)}
 
 	for _, fileid := range post {
-		if g.Limited {
+		if query.g.Limited {
 			break
 		}
 
-		searchResult := fileSearchResult{}
+		result := fileSearchResult{}
 
 		filename := ix.Name(fileid).String()
 		file, err := os.Open(filename)
@@ -321,45 +320,69 @@ func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
 			continue
 		}
 
-		for grepMatch := range g.ReaderSeq(file) {
-			searchResult.appendGrepMatch(grepMatch, query)
+		for grepMatch := range query.g.ReaderSeq(file) {
+			result.appendGrepMatch(grepMatch, query)
 		}
 
 		file.Close()
 
 		// TODO: collect grep errs and render them?
-		err = g.Err()
+		err = query.g.Err()
 		if err != nil {
 			assert(false, fmt.Errorf("TODO: accumulate and report grep errs?"))
 		}
 
-		if len(searchResult.Hunks) > 0 {
+		if len(result.Hunks) > 0 {
 			root, foundRoot := findRoot(ix, filename)
 			assert(foundRoot)
 
-			searchResult.Breadcrumbs, err = collectBreadcrumbs(root, filename)
+			result.Breadcrumbs, err = collectBreadcrumbs(root, filename)
 			if err != nil {
-				return &bufedHttpErr{
-					status: http.StatusInternalServerError,
-					err:    fmt.Errorf("could not collect breadcrumbs: %w", err),
-				}
+				return nil, fmt.Errorf("could not collect breadcrumbs: %w", err)
 			}
 
-			lastHunk := &searchResult.Hunks[len(searchResult.Hunks)-1]
+			ret.Results = append(ret.Results, result)
+
+			lastHunk := &result.Hunks[len(result.Hunks)-1]
 			lastHunkLastLineNo, ok := lastHunk.getLastLineNoAssumeSorted()
 			assert(ok)
 
 			maxLineNo = max(maxLineNo, lastHunkLastLineNo)
-			searchResults = append(searchResults, searchResult)
+		}
+	}
+
+	ret.MatchCount = query.g.Matches
+	ret.LinePad = computeLinePad(maxLineNo)
+	ret.TimeElapsed = time.Since(start).Seconds()
+
+	return &ret, nil
+}
+
+func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
+	qarg := ctx.r.FormValue("q")
+	if qarg == "" {
+		return ctx.renderTemplate("page.index", nil)
+	}
+
+	query, err := compileQuery(qarg)
+	if err != nil {
+		return newBadQueryBufedHttpErr(err)
+	}
+
+	// TODO: don't re-open index for each request?
+	ix := index.Open(index.File())
+
+	fileSearch, err := searchFiles(query, ix)
+	if err != nil {
+		return &bufedHttpErr{
+			status: http.StatusInternalServerError,
+			err:    fmt.Errorf("could not search files: %w", err),
 		}
 	}
 
 	return ctx.renderTemplate("page.index", map[string]any{
-		"Query":         qarg,
-		"SearchResults": searchResults,
-		"LinePad":       computeLinePad(maxLineNo),
-		"MatchCount":    g.Matches,
-		"TimeElapsed":   time.Since(start).Seconds(),
+		"Query":      qarg,
+		"FileSearch": fileSearch,
 	})
 }
 
@@ -422,9 +445,9 @@ func isText(s []byte) bool {
 
 type sourceFile struct {
 	Breadcrumbs []breadcrumb
-	LinePad     int
 	Lines       []sourceLine
 	MatchCount  int
+	LinePad     int
 }
 
 var nl = []byte("\n")
@@ -449,9 +472,8 @@ func readAndMatchFile(root, name string, query *query) (*sourceFile, error) {
 
 	ret := sourceFile{
 		Breadcrumbs: breadcrumbs,
-		LinePad:     computeLinePad(bytes.Count(data, nl) + 1),
 		Lines:       make([]sourceLine, 0),
-		MatchCount:  0,
+		LinePad:     computeLinePad(bytes.Count(data, nl) + 1),
 	}
 
 	for lineNo := 1; len(data) > 0; lineNo += 1 {
@@ -459,6 +481,7 @@ func readAndMatchFile(root, name string, query *query) (*sourceFile, error) {
 		sourceLine.Line, data, _ = bytes.Cut(data, nl)
 
 		if query != nil {
+			// TODO: impl something like BytesSeq on regexp.Grep
 			if query.re.Match(sourceLine.Line, lineNo == 1, true) != -1 {
 				sourceLine.PreciseMatchLocations = query.stdre.FindAllIndex(sourceLine.Line, -1)
 				ret.MatchCount += 1
@@ -479,10 +502,7 @@ func handleFilepath(ctx *bufedHttpCtx) *bufedHttpErr {
 		name = name[1:]
 	}
 
-	start := time.Now()
-
 	ix := index.Open(index.File())
-
 	// NOTE: this prevents serving filenames that aren't at known roots
 	root, foundRoot := findRoot(ix, name)
 	if !foundRoot {
@@ -519,10 +539,17 @@ func handleFilepath(ctx *bufedHttpCtx) *bufedHttpErr {
 			}
 		}
 		return ctx.renderTemplate("page.filepath", map[string]any{
-			"Query":       qarg,
-			"SourceDir":   sourceDir,
-			"TimeElapsed": time.Since(start).Seconds(),
+			"Query":     qarg,
+			"SourceDir": sourceDir,
 		})
+	}
+
+	fileSearch, err := searchFiles(query, ix)
+	if err != nil {
+		return &bufedHttpErr{
+			status: http.StatusInternalServerError,
+			err:    fmt.Errorf("could not search files: %w", err),
+		}
 	}
 
 	sourceFile, err := readAndMatchFile(root, name, query)
@@ -533,9 +560,9 @@ func handleFilepath(ctx *bufedHttpCtx) *bufedHttpErr {
 		}
 	}
 	return ctx.renderTemplate("page.filepath", map[string]any{
-		"Query":       qarg,
-		"SourceFile":  sourceFile,
-		"TimeElapsed": time.Since(start).Seconds(),
+		"Query":      qarg,
+		"FileSearch": fileSearch,
+		"SourceFile": sourceFile,
 	})
 }
 

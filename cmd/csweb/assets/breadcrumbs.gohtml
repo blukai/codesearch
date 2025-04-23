@@ -1,0 +1,14 @@
+{{- /* ARGS: map of Breadcrumbs, Query */ -}}
+{{define "component.breadcrumbs"}}
+  {{- range $_, $breadcrumb := .Breadcrumbs -}}
+    {{- $filename := printf "%s/%s" $breadcrumb.Dirname $breadcrumb.Basename -}}
+    {{- if $breadcrumb.IsOutOfRoot -}}
+      <span class="text-disabled">/{{$breadcrumb.Basename}}</span>
+    {{- else if $breadcrumb.IsDir -}}
+      {{- /* NOTE: wihtut trailing slash (/) dot-slash (./) will not work */ -}}
+      <span class="text-disabled">/</span><a href="{{$filename}}/?q={{$.Query}}">{{$breadcrumb.Basename}}</a>
+    {{- else -}}
+      <span class="text-disabled">/</span><a href="{{$filename}}?q={{$.Query}}"><b>{{$breadcrumb.Basename}}</b></a>
+    {{- end -}}
+  {{- end -}}
+{{end}}

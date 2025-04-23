@@ -1,11 +1,17 @@
 // keyboard nav:
 //   - index:
 //     - / = change focus to the search box
-//     - n = select the next result in the search results
-//     - shift + n = select the previous result in the search results
+//     - j = select the next result in the search results
+//     - k = select the previous result in the search results
 //   - filepath:
 //     - n = jump to next match in file
 //     - shift + n = jump to previous match in file
+
+function assert(truth, msg) {
+	if (!truth) {
+		throw new Error(msg);
+	}
+}
 
 function wrapAround(n, min, max) {
 	const range = max - min;
@@ -65,8 +71,10 @@ function initSearchResultsNav() {
 	}
 
 	const handleWindowKeydown = (ev) => {
-		if (ev.key.toLowerCase() === "n") {
-			focusIdxRelative(ev.shiftKey ? -1 : 1);
+		if (ev.key.toLowerCase() === "j") {
+			focusIdxRelative(1);
+		} else if (ev.key.toLowerCase() === "k") {
+			focusIdxRelative(-1);
 		} else if (ev.key === "Escape") {
 			searchResultEls[lastFocusedIdx]?.blur();
 		}
@@ -81,13 +89,33 @@ function initSearchResultsNav() {
 
 	window.addEventListener("keydown", handleWindowKeydown);
 	window.addEventListener("focusin", handleWindowFocusin);
+
+	// for when we're viewing a file
+	const maybeInitEl = searchResultEls.find((el) => el.innerText === location.pathname);
+	if (maybeInitEl) {
+		lastFocusedIdx = searchResultEls.indexOf(maybeInitEl);
+		maybeInitEl.scrollIntoView();
+	}
 }
 initSearchResultsNav();
 
 function initSourceFileNav() {
-	const matchedLineEls = Array.from(document.querySelectorAll(`[data-matched="true"]`));
-	if (matchedLineEls.length === 0) {
+	// NOTE: sfl stands for source-file-line
+	const matchedEls = Array.from(document.querySelectorAll(`[data-sfl-matched="true"]`));
+	if (matchedEls.length === 0) {
 		return;
+	}
+
+	// NOTE: fsl stands for file-search-line
+	const searchResultEl = document.querySelector(`[data-filename="${location.pathname}"]`);
+	const searchResultMatchedEls = searchResultEl
+		? Array.from(searchResultEl.querySelectorAll(`[data-fsl-matched="true"]`))
+		: null;
+	if (searchResultMatchedEls !== null) {
+		assert(
+			searchResultMatchedEls.length === matchedEls.length,
+			`length missmatch (got ${searchResultMatchedEls.length}, want ${matchedEls.length})`
+		);
 	}
 
 	const targetedLineNoEl = document.getElementById("targeted-line-no");
@@ -95,34 +123,52 @@ function initSourceFileNav() {
 	const toPrevMatchButton = document.getElementById("to-prev-match");
 	const toNextMatchButton = document.getElementById("to-next-match");
 
-	function findTargetedLineEl() {
+	function findTargetedEl() {
 		const targetId = location.hash.substring(1);
-		return matchedLineEls.find((el) => el.id == targetId);
+		return matchedEls.find((el) => el.id == targetId);
 	}
 
-	function updateTargetedMatchNo(maybeIdx = undefined) {
-		const idx = maybeIdx ?? matchedLineEls.indexOf(findTargetedLineEl());
-		if (idx === -1) {
-			return;
+	function deactivateElAtIdx(idx) {
+		const el = matchedEls[idx];
+		el.classList.remove("source-line--selected");
+		el.removeAttribute("tabIndex");
+
+		const maybeSrEl = searchResultMatchedEls?.[idx];
+		if (maybeSrEl) {
+			maybeSrEl.classList.remove("source-line--selected");
 		}
+	}
+
+	function activateElAtIdx(idx, shouldFocus) {
+		const el = matchedEls[idx];
+		el.classList.add("source-line--selected");
+		el.setAttribute("tabIndex", "-1");
+		el.scrollIntoView();
+		if (shouldFocus) {
+			el.focus();
+		}
+
 		targetedLineNoEl.innerText = `${idx + 1} /`;
-		matchedLineEls[idx].classList.add("source-line--selected");
+
+		const maybeSrEl = searchResultMatchedEls?.[idx];
+		if (maybeSrEl) {
+			maybeSrEl.classList.add("source-line--selected");
+		}
 	}
 
 	function jumpToIdxRelative(relative) {
-		const prevEl = findTargetedLineEl();
-		const prevElIdx = matchedLineEls.indexOf(prevEl) ?? -1;
-		const nextElIdx = wrapAround(prevElIdx + relative, 0, matchedLineEls.length);
-		const nextEl = matchedLineEls[nextElIdx];
+		const prevEl = findTargetedEl();
+		const prevElIdx = matchedEls.indexOf(prevEl) ?? -1;
+		const nextElIdx = wrapAround(prevElIdx + relative, 0, matchedEls.length);
+		const nextEl = matchedEls[nextElIdx];
 
-		prevEl?.classList.remove("source-line--selected");
-		updateTargetedMatchNo(nextElIdx);
-		nextEl.scrollIntoView();
+		if (prevElIdx !== -1) {
+			deactivateElAtIdx(prevElIdx, true);
+		}
+		activateElAtIdx(nextElIdx);
 
 		history.replaceState(null, null, `#${nextEl.id}`);
 	}
-
-	updateTargetedMatchNo();
 
 	toPrevMatchButton.disabled = false;
 	toNextMatchButton.disabled = false;
@@ -133,8 +179,16 @@ function initSourceFileNav() {
 	const handleWindowKeydown = (ev) => {
 		if (ev.key.toLowerCase() === "n") {
 			jumpToIdxRelative(ev.shiftKey ? -1 : 1);
+		} else if (ev.key === "Escape") {
+			findTargetedEl()?.blur();
 		}
 	};
 	window.addEventListener("keydown", handleWindowKeydown);
+
+	const targetedElIdx = matchedEls.indexOf(findTargetedEl());
+	if (targetedElIdx !== -1) {
+		activateElAtIdx(targetedElIdx, false);
+	}
 }
 initSourceFileNav();
+
