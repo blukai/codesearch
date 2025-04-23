@@ -123,6 +123,17 @@ mark {
 	flex-shrink: 0;
 }
 
+.file_header__source-nav__button {
+	background: none;
+	border: none;
+	padding: var(--space-s) var(--space-m);
+}
+
+.file_header__source-nav__button:hover,
+.file_header__source-nav__button:focus {
+	background: var(--bg-emphasis);
+}
+
 .main-content-wrapper {
 	flex-grow: 1;
 	overflow-y: auto;

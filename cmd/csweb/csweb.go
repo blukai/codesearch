@@ -25,6 +25,15 @@ import (
 )
 
 // TODO: experiment with full search history tracking and counting idea
+//   - track and count searches.
+//   - track and count searches within the file / scoped;
+//     parent those reconds under search that lead to the file.
+//   - visualiaze as a hierarchy? figure out how to "chain" searches to be
+//     able to observe the flow.
+//   - it must be possible to "promote" file-scoped search to global scope
+//     (but don't simply move it out of the file, create a new ~"node" in global
+//     scope and preserve the "link" to the origin)
+
 // TODO: add support for -f flag
 // TODO: consider supporting -i, -l, -h, -b, -a, -c flags
 

@@ -9,8 +9,8 @@
         <span id="targeted-line-no"></span>
         {{.SourceFile.MatchCount}}
         {{selectplural .SourceFile.MatchCount "match" "matches"}}
-        <button id="to-prev-match" disabled="true">/\</button>
-        <button id="to-next-match" disabled="true">\/</button>
+        <button id="to-prev-match" disabled="true" class="file_header__source-nav__button">/\</button>
+        <button id="to-next-match" disabled="true" class="file_header__source-nav__button">\/</button>
       </div>
     {{end}}
   </div>
