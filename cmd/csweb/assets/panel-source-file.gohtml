@@ -1,0 +1,40 @@
+{{- /* ARGS: map of Breadcrumbs, Query, InnerQuery, SourceFile */ -}}
+{{define "component.panel-source-file"}}
+  <section class="panel panel--source-file divide-l" id="panel-source-file">
+    <div>
+      <div class="file-header px-m py-s divide-b">
+        {{template "component.breadcrumbs" map "Breadcrumbs" .SourceFile.Breadcrumbs "Query" .Query}}
+      </div>
+      <div class="source-file-nav px-m py-m divide-b">
+        <form class="source_file_nav__form">
+          <input type="hidden" name="q" value="{{.Query}}" />
+          <input
+            type="text"
+            name="innerq"
+            value="{{or .InnerQuery .Query}}"
+            placeholder="pattern"
+            class="w-full"
+            id="source-file-search-input"
+          />
+          <button type="submit" class="hidden"></button>
+        </form>
+        <div class="source-file-nav__controls">
+          {{if .SourceFile.MatchCount}}
+            <span class="px-m" id="targeted-line-no">? / {{.SourceFile.MatchCount}}</span>
+            <button id="to-prev-match" disabled="true">/\</button>
+            <button id="to-next-match" disabled="true">\/</button>
+          {{end}}
+        </div>
+      </div>
+    </div>
+    <div class="panel-content" tabIndex="-1">
+      <div class="source-hunk" style="--line-pad: {{.SourceFile.LinePad}}ch">
+        {{range $_, $line := .SourceFile.Lines}}
+          <div id="l{{$line.LineNo}}"{{if $line.PreciseMatchLocations}} data-sfl-matched="true"{{end}}>
+            {{- template "component.source-line" . -}}
+          </div>
+        {{end}}
+      </div>
+    </div>
+  </section>
+{{end}}

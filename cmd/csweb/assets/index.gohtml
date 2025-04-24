@@ -1,7 +1,7 @@
 {{block "page.index" .}}
   {{template "layout.head" .}}
-  {{if .Query}}
-    {{template "component.file-search" .}}
-  {{end}}
+  <main class="panels">
+    {{template "component.panel-file-search" .}}
+  </main>
   {{template "layout.foot" .}}
 {{end}}

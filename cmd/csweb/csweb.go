@@ -390,6 +390,7 @@ func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
 	}
 
 	return ctx.renderTemplate("page.index", map[string]any{
+		"Path":       ctx.r.URL.Path,
 		"Query":      qarg,
 		"FileSearch": fileSearch,
 	})
@@ -530,6 +531,15 @@ func handleFilepath(ctx *bufedHttpCtx) *bufedHttpErr {
 		}
 	}
 
+	innerqarg := ctx.r.FormValue("innerq")
+	var innerQuery *query
+	if innerqarg != "" {
+		innerQuery, err = compileQuery(innerqarg)
+		if err != nil {
+			return newBadQueryBufedHttpErr(err)
+		}
+	}
+
 	qarg := ctx.r.FormValue("q")
 	var query *query
 	if qarg != "" {
@@ -548,6 +558,7 @@ func handleFilepath(ctx *bufedHttpCtx) *bufedHttpErr {
 			}
 		}
 		return ctx.renderTemplate("page.filepath", map[string]any{
+			"Path":      ctx.r.URL.Path,
 			"Query":     qarg,
 			"SourceDir": sourceDir,
 		})
@@ -561,7 +572,14 @@ func handleFilepath(ctx *bufedHttpCtx) *bufedHttpErr {
 		}
 	}
 
-	sourceFile, err := readAndMatchFile(root, name, query)
+	var sourceFile *sourceFile
+	if innerQuery != nil {
+		sourceFile, err = readAndMatchFile(root, name, innerQuery)
+	} else if query != nil {
+		sourceFile, err = readAndMatchFile(root, name, query)
+	} else {
+		assert(false)
+	}
 	if err != nil {
 		return &bufedHttpErr{
 			status: http.StatusInternalServerError,
@@ -569,7 +587,9 @@ func handleFilepath(ctx *bufedHttpCtx) *bufedHttpErr {
 		}
 	}
 	return ctx.renderTemplate("page.filepath", map[string]any{
+		"Path":       ctx.r.URL.Path,
 		"Query":      qarg,
+		"InnerQuery": innerqarg,
 		"FileSearch": fileSearch,
 		"SourceFile": sourceFile,
 	})

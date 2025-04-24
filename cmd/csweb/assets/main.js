@@ -1,11 +1,7 @@
 // keyboard nav:
-//   - index:
-//     - / = change focus to the search box
-//     - j = select the next result in the search results
-//     - k = select the previous result in the search results
-//   - filepath:
-//     - n = jump to next match in file
-//     - shift + n = jump to previous match in file
+//   - h / l = move focus focus to left / right panel
+//   - / = change focus to the search box
+//   - n / shift + n = select next / previous result in the search results
 
 function assert(truth, msg) {
 	if (!truth) {
@@ -18,8 +14,8 @@ function wrapAround(n, min, max) {
 	return ((((n - min) % range) + range) % range) + min;
 }
 
-function initSearchInputNav() {
-	const inputEl = document.getElementById("search-input");
+function activateSearchInputNav(inputElId) {
+	const inputEl = document.getElementById(inputElId);
 
 	const handleWindowKeydown = (ev) => {
 		if (ev.key === "/") {
@@ -45,14 +41,21 @@ function initSearchInputNav() {
 	};
 
 	window.addEventListener("keydown", handleWindowKeydown);
-
 	inputEl.addEventListener("keydown", handleInputKeydown);
 	inputEl.addEventListener("focus", handleInputFocus);
 	inputEl.addEventListener("blur", handleInputBlur);
-}
-initSearchInputNav();
 
-function initSearchResultsNav() {
+	return () => {
+		window.removeEventListener("keydown", handleWindowKeydown);
+		inputEl.removeEventListener("keydown", handleInputKeydown);
+		inputEl.removeEventListener("focus", handleInputFocus);
+		inputEl.removeEventListener("blur", handleInputBlur);
+	};
+}
+
+let didActivateSearchResultsNavOnce = false;
+
+function activateSearchResultsNav() {
 	const searchResultEls = Array.from(document.querySelectorAll(`[id^="search-result-"]`));
 	if (searchResultEls.length === 0) {
 		return;
@@ -71,10 +74,11 @@ function initSearchResultsNav() {
 	}
 
 	const handleWindowKeydown = (ev) => {
-		if (ev.key.toLowerCase() === "j") {
-			focusIdxRelative(1);
-		} else if (ev.key.toLowerCase() === "k") {
-			focusIdxRelative(-1);
+		if (ev.target instanceof HTMLInputElement) {
+			return;
+		}
+		if (ev.key.toLowerCase() === "n") {
+			focusIdxRelative(ev.shiftKey ? -1 : 1);
 		} else if (ev.key === "Escape") {
 			searchResultEls[lastFocusedIdx]?.blur();
 		}
@@ -91,31 +95,32 @@ function initSearchResultsNav() {
 	window.addEventListener("focusin", handleWindowFocusin);
 
 	// for when we're viewing a file
-	const maybeInitEl = searchResultEls.find((el) => el.innerText === location.pathname);
-	if (maybeInitEl) {
-		lastFocusedIdx = searchResultEls.indexOf(maybeInitEl);
-		maybeInitEl.scrollIntoView();
+	if (!didActivateSearchResultsNavOnce) {
+		if (location.pathname !== "/") {
+			const maybeInitEl = searchResultEls.find((el) => (
+				el.getAttribute("href").startsWith(location.pathname)
+			));
+			if (maybeInitEl) {
+				lastFocusedIdx = searchResultEls.indexOf(maybeInitEl);
+				maybeInitEl.scrollIntoView();
+			}
+		}
+		didActivateSearchResultsNavOnce = true;
 	}
-}
-initSearchResultsNav();
 
-function initSourceFileNav() {
+	return () => {
+		window.removeEventListener("keydown", handleWindowKeydown);
+		window.removeEventListener("focusin", handleWindowFocusin);
+	};
+}
+
+let didActivateSourceFileNavOnce = false;
+
+function activateSourceFileNav() {
 	// NOTE: sfl stands for source-file-line
 	const matchedEls = Array.from(document.querySelectorAll(`[data-sfl-matched="true"]`));
 	if (matchedEls.length === 0) {
 		return;
-	}
-
-	// NOTE: fsl stands for file-search-line
-	const searchResultEl = document.querySelector(`[data-filename="${location.pathname}"]`);
-	const searchResultMatchedEls = searchResultEl
-		? Array.from(searchResultEl.querySelectorAll(`[data-fsl-matched="true"]`))
-		: null;
-	if (searchResultMatchedEls !== null) {
-		assert(
-			searchResultMatchedEls.length === matchedEls.length,
-			`length missmatch (got ${searchResultMatchedEls.length}, want ${matchedEls.length})`
-		);
 	}
 
 	const targetedLineNoEl = document.getElementById("targeted-line-no");
@@ -131,29 +136,14 @@ function initSourceFileNav() {
 	function deactivateElAtIdx(idx) {
 		const el = matchedEls[idx];
 		el.classList.remove("source-line--selected");
-		el.removeAttribute("tabIndex");
-
-		const maybeSrEl = searchResultMatchedEls?.[idx];
-		if (maybeSrEl) {
-			maybeSrEl.classList.remove("source-line--selected");
-		}
 	}
 
-	function activateElAtIdx(idx, shouldFocus) {
+	function activateElAtIdx(idx) {
 		const el = matchedEls[idx];
 		el.classList.add("source-line--selected");
-		el.setAttribute("tabIndex", "-1");
 		el.scrollIntoView();
-		if (shouldFocus) {
-			el.focus();
-		}
 
-		targetedLineNoEl.innerText = `${idx + 1} /`;
-
-		const maybeSrEl = searchResultMatchedEls?.[idx];
-		if (maybeSrEl) {
-			maybeSrEl.classList.add("source-line--selected");
-		}
+		targetedLineNoEl.innerText = `${idx + 1} / ${matchedEls.length}`;
 	}
 
 	function jumpToIdxRelative(relative) {
@@ -163,7 +153,7 @@ function initSourceFileNav() {
 		const nextEl = matchedEls[nextElIdx];
 
 		if (prevElIdx !== -1) {
-			deactivateElAtIdx(prevElIdx, true);
+			deactivateElAtIdx(prevElIdx);
 		}
 		activateElAtIdx(nextElIdx);
 
@@ -177,18 +167,123 @@ function initSourceFileNav() {
 	toNextMatchButton.onclick = () => jumpToIdxRelative(1);
 
 	const handleWindowKeydown = (ev) => {
+		if (ev.target instanceof HTMLInputElement) {
+			return;
+		}
 		if (ev.key.toLowerCase() === "n") {
 			jumpToIdxRelative(ev.shiftKey ? -1 : 1);
 		} else if (ev.key === "Escape") {
 			findTargetedEl()?.blur();
 		}
 	};
+
 	window.addEventListener("keydown", handleWindowKeydown);
 
-	const targetedElIdx = matchedEls.indexOf(findTargetedEl());
-	if (targetedElIdx !== -1) {
-		activateElAtIdx(targetedElIdx, false);
+	if (!didActivateSourceFileNavOnce) {
+		const targetedElIdx = matchedEls.indexOf(findTargetedEl() ?? matchedEls[0]);
+		if (targetedElIdx !== -1) {
+			activateElAtIdx(targetedElIdx);
+		}
+		didActivateSourceFileNavOnce = true;
 	}
-}
-initSourceFileNav();
 
+	return () => {
+		window.removeEventListener("keydown", handleWindowKeydown);
+	};
+}
+
+function initPanelsNav() {
+	const SPECIALS = {
+		"panel-file-search": () => {
+			const deactivators = [
+				activateSearchInputNav("file-search-input"),
+				activateSearchResultsNav(),
+			];
+			return () => {
+				deactivators.forEach((deactivate) => deactivate?.());
+			};
+		},
+		"panel-source-file": () => {
+			const deactivators = [
+				activateSearchInputNav("source-file-search-input"),
+				activateSourceFileNav(),
+			];
+			return () => {
+				deactivators.forEach((deactivate) => deactivate?.());
+			};
+		},
+	};
+
+	const panelEls = [
+		"panel-file-search",
+		"panel-source-file",
+	].map((id) => document.getElementById(id)).filter(Boolean);
+	assert(panelEls[0]?.id === "panel-file-search", "need at least file search panel");
+
+	let lastFocusedIdx = null;
+	let deactivateSpecials = null;
+
+	function deactivateLastFocusedEl() {
+		const el = panelEls[lastFocusedIdx];
+		el.classList.remove("panel--selected");
+
+		el.removeAttribute("tabIndex");
+
+		lastFocusedIdx = null;
+		deactivateSpecials();
+	}
+
+	function activateElAtIdx(idx) {
+		const el = panelEls[idx];
+		el.classList.add("panel--selected");
+
+		el.setAttribute("tabIndex", "-1");
+		el.focus();
+
+		lastFocusedIdx = idx;
+		deactivateSpecials = SPECIALS[el.id]();
+	}
+
+	const handleKeydown = (ev) => {
+		if (ev.target instanceof HTMLInputElement) {
+			return;
+		}
+		if (ev.key.toLowerCase() === "l") {
+			ev.preventDefault();
+			const nextIdx = lastFocusedIdx + 1;
+			if (nextIdx === panelEls.length) {
+				return;
+			}
+			deactivateLastFocusedEl();
+			activateElAtIdx(nextIdx);
+		} else if (ev.key.toLowerCase() === "h") {
+			ev.preventDefault();
+			const nextIdx = lastFocusedIdx - 1;
+			if (nextIdx === -1) {
+				return;
+			}
+			deactivateLastFocusedEl();
+			activateElAtIdx(nextIdx);
+		}
+	};
+
+	const handleFocus = (ev) => {
+		if (lastFocusedIdx === null) {
+			return;
+		}
+		const targetIdx = panelEls.findIndex((el) => el.contains(ev.target));
+		if (targetIdx === -1 || targetIdx === lastFocusedIdx) {
+			return;
+		}
+		deactivateLastFocusedEl();
+		activateElAtIdx(targetIdx);
+	};
+
+	window.addEventListener("keydown", handleKeydown);
+	window.addEventListener("click", handleFocus);
+	window.addEventListener("focusin", handleFocus);
+	window.addEventListener("mousemove", handleFocus);
+
+	activateElAtIdx(0);
+}
+initPanelsNav();

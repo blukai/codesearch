@@ -1,33 +1,33 @@
 {{block "page.filepath" .}}
   {{template "layout.head" .}}
-  <div class="filepath-panels-wrapper">
-    <div class="filepath-panels-wrapper__file-search">
-      {{template "component.file-search" .}}
-    </div>
+  <main class="panels">
+    {{template "component.panel-file-search" .}}
     {{if .SourceDir}}
-      <div class="section-header file-header">
+      <div>
         {{template "component.breadcrumbs" map "Breadcrumbs" .SourceDir.Breadcrumbs "Query" .Query}}
       </div>
-      <div class="main-content-wrapper">
-        {{range $_, $entry := .SourceDir.Entries}}
-          <div class="section-header file-header">
-            {{if $entry.IsDir}}
-              {{/* NOTE: wihtut trailing slash (/) dot-slash (./) will not work */}}
-              <a href="./{{$entry.Name}}/?q={{$.Query}}">
-                {{$entry.Name}}
-              </a>
-            {{else}}
-              <a href="./{{$entry.Name}}?q={{$.Query}}">
-                {{$entry.Name}}
-              </a>
-            {{end}}
-          </div>
-        {{end}}
-      </div>
+      {{range $_, $entry := .SourceDir.Entries}}
+        <div>
+          {{if $entry.IsDir}}
+            {{/* NOTE: wihtut trailing slash (/) dot-slash (./) will not work */}}
+            <a href="./{{$entry.Name}}/?q={{$.Query}}">
+              {{$entry.Name}}
+            </a>
+          {{else}}
+            <a href="./{{$entry.Name}}?q={{$.Query}}">
+              {{$entry.Name}}
+            </a>
+          {{end}}
+        </div>
+      {{end}}
     {{else if .SourceFile}}
-      <div class="filepath-panels-wrapper__source-file">
-        {{template "component.source-file" map "Breadcrumbs" .SourceDir.Breadcrumbs "Query" .Query "SourceFile" .SourceFile}}
-      </div>
+      {{
+        template "component.panel-source-file" map
+          "Breadcrumbs" .SourceDir.Breadcrumbs
+          "Query" .Query
+          "InnerQuery" .InnerQuery
+          "SourceFile" .SourceFile
+      }}
     {{end}}
   </div>
   {{template "layout.foot" .}}
