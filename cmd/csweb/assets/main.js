@@ -205,7 +205,6 @@ function initPanelsNav() {
 		},
 		"panel-source-file": () => {
 			const deactivators = [
-				activateSearchInputNav("source-file-search-input"),
 				activateSourceFileNav(),
 			];
 			return () => {
