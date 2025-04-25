@@ -194,7 +194,48 @@ function activateSourceFileNav() {
 
 // TODO:
 function activateSearchHistoryNav() {
-	return () => {};
+	const entryEls = Array.from(document.querySelectorAll(`[id^="search-history-entry-"]`));
+	if (entryEls.length === 0) {
+		return;
+	}
+
+	let lastFocusedIdx = null;
+
+	function focusIdxRelative(relative) {
+		const newIdx = wrapAround(
+			(lastFocusedIdx ?? (relative > 0 ? -1 : entryEls.length)) + relative,
+			0,
+			entryEls.length,
+		);
+		const target = entryEls[newIdx];
+		target.focus();
+	}
+
+	const handleWindowKeydown = (ev) => {
+		if (ev.target instanceof HTMLInputElement) {
+			return;
+		}
+		if (ev.key.toLowerCase() === "n") {
+			focusIdxRelative(ev.shiftKey ? -1 : 1);
+		} else if (ev.key === "Escape") {
+			entryEls[lastFocusedIdx]?.blur();
+		}
+	};
+
+	const handleWindowFocusin = (ev) => {
+		const focusedIdx = entryEls.indexOf(ev.target);
+		if (focusedIdx !== -1) {
+			lastFocusedIdx = focusedIdx;
+		}
+	};
+
+	window.addEventListener("keydown", handleWindowKeydown);
+	window.addEventListener("focusin", handleWindowFocusin);
+
+	return () => {
+		window.removeEventListener("keydown", handleWindowKeydown);
+		window.removeEventListener("focusin", handleWindowFocusin);
+	};
 }
 
 function initPanelsNav() {

@@ -407,7 +407,9 @@ func searchFiles(query *query, ix *index.Index) (*fileSearch, error) {
 func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
 	qarg := ctx.r.FormValue("q")
 	if qarg == "" {
-		return ctx.renderTemplate("page.index", nil)
+		return ctx.renderTemplate("page.index", map[string]any{
+			"PatternAggregates": collectSearchHistoryPatternAggregates(),
+		})
 	}
 
 	query, err := compileQuery(qarg)
@@ -586,9 +588,10 @@ func handleFilepath(ctx *bufedHttpCtx) *bufedHttpErr {
 			}
 		}
 		return ctx.renderTemplate("page.filepath", map[string]any{
-			"Path":      ctx.r.URL.Path,
-			"Query":     qarg,
-			"SourceDir": sourceDir,
+			"Path":              ctx.r.URL.Path,
+			"Query":             qarg,
+			"PatternAggregates": collectSearchHistoryPatternAggregates(),
+			"SourceDir":         sourceDir,
 		})
 	}
 

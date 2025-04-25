@@ -1,8 +1,12 @@
 {{- /* ARGS: map of Query, PatternAggregates */ -}}
 {{define "component.panel-search-history"}}
   <section class="panel panel--search-history" id="panel-search-history">
-    {{range $_, $aggregate := .PatternAggregates}}
-      <a href="/?q={{$aggregate.Pattern}}" class="search-history-item px-m py-xs divide-b">
+    {{range $i, $aggregate := .PatternAggregates}}
+      <a
+        href="/?q={{$aggregate.Pattern}}"
+        class="search-history-item px-m py-xs divide-b"
+        id="search-history-entry-{{$i}}"
+      >
         {{$aggregate.Pattern}}
       </a>
     {{end}}
