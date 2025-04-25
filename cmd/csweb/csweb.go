@@ -11,11 +11,15 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"maps"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	stdregexp "regexp"
 	"regexp/syntax"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -44,6 +48,10 @@ var runtimeAssets = flag.String("assets", "", "todo")
 
 var assets fs.FS
 var templates Templates
+
+var searchHistoryStore SearchHistoryStorer
+
+var nl = []byte("\n")
 
 func assert(truth bool, errs ...error) {
 	if truth {
@@ -142,6 +150,35 @@ func newBadQueryBufedHttpErr(err error) *bufedHttpErr {
 		status: http.StatusBadRequest,
 		err:    fmt.Errorf("bad query: %v", err),
 	}
+}
+
+func maybeAppendSearchHistory(r *http.Request) {
+	nextQArg := r.FormValue("q")
+	if nextQArg == "" {
+		return
+	}
+
+	if referer := r.Referer(); referer != "" {
+		u, err := url.Parse(referer)
+		if err != nil {
+			return
+		}
+		q := u.Query()
+		prevQArg := q.Get("q")
+		if prevQArg == nextQArg {
+			return
+		}
+	}
+
+	searchHistoryStore.Append(nextQArg)
+}
+
+func collectSearchHistoryPatternAggregates() []*SearchHistoryPatternAggregate {
+	aggregates := slices.Collect(maps.Values(searchHistoryStore.PatternAggregates()))
+	slices.SortFunc(aggregates, func(a, b *SearchHistoryPatternAggregate) int {
+		return b.MaxCreatedAt.Compare(a.MaxCreatedAt)
+	})
+	return aggregates
 }
 
 func findRoot(ix *index.Index, name string) (string, bool) {
@@ -388,11 +425,13 @@ func handleIndex(ctx *bufedHttpCtx) *bufedHttpErr {
 			err:    fmt.Errorf("could not search files: %w", err),
 		}
 	}
+	maybeAppendSearchHistory(ctx.r)
 
 	return ctx.renderTemplate("page.index", map[string]any{
-		"Path":       ctx.r.URL.Path,
-		"Query":      qarg,
-		"FileSearch": fileSearch,
+		"Path":              ctx.r.URL.Path,
+		"Query":             qarg,
+		"PatternAggregates": collectSearchHistoryPatternAggregates(),
+		"FileSearch":        fileSearch,
 	})
 }
 
@@ -459,8 +498,6 @@ type sourceFile struct {
 	MatchCount  int
 	LinePad     int
 }
-
-var nl = []byte("\n")
 
 func readAndMatchFile(root, name string, query *query) (*sourceFile, error) {
 	// TODO: file size limit ?
@@ -562,6 +599,7 @@ func handleFilepath(ctx *bufedHttpCtx) *bufedHttpErr {
 			err:    fmt.Errorf("could not search files: %w", err),
 		}
 	}
+	maybeAppendSearchHistory(ctx.r)
 
 	sourceFile, err := readAndMatchFile(root, name, query)
 	if err != nil {
@@ -571,10 +609,11 @@ func handleFilepath(ctx *bufedHttpCtx) *bufedHttpErr {
 		}
 	}
 	return ctx.renderTemplate("page.filepath", map[string]any{
-		"Path":       ctx.r.URL.Path,
-		"Query":      qarg,
-		"FileSearch": fileSearch,
-		"SourceFile": sourceFile,
+		"Path":              ctx.r.URL.Path,
+		"Query":             qarg,
+		"PatternAggregates": collectSearchHistoryPatternAggregates(),
+		"FileSearch":        fileSearch,
+		"SourceFile":        sourceFile,
 	})
 }
 
@@ -582,6 +621,7 @@ func erringMain() error {
 	flag.Parse()
 
 	var err error
+
 	if runtimeAssets != nil && *runtimeAssets != "" {
 		assets = os.DirFS(*runtimeAssets)
 
@@ -600,6 +640,15 @@ func erringMain() error {
 			return fmt.Errorf("could not init static templates: %w", err)
 		}
 	}
+
+	// TODO: unhardcode this, or even better - make a .codearch directory and change index.File too
+	searchHistoryStore, err = NewFileSearchHistoryStore(path.Join(path.Dir(index.File()), ".csearchhistory"))
+	if err != nil {
+		return fmt.Errorf("could not init history store: %w", err)
+	}
+
+	// TODO: make use of history store ...
+	// add a new record and inc count when query is coming from referrer (http header) with a distrinct or no query.
 
 	http.Handle("GET /assets/{asset...}", http.StripPrefix("/assets", http.FileServerFS(assets)))
 	http.HandleFunc("GET /{$}", bufedHttpHandlerFunc(handleIndex))

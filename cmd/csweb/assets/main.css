@@ -159,6 +159,7 @@ button:focus {
 /* specifics */
 
 .panels {
+	flex-grow: 1;
 	display: flex;
 	overflow: hidden;
 }
@@ -167,15 +168,21 @@ button:focus {
 	display: flex;
 	flex-direction: column;
 	width: 0;
-	flex-grow: 1;
+}
+
+.panel--search-history {
+	flex-basis: 10%;
+	width: 200px;
 }
 
 .panel--file-search {
 	flex-basis: 30%;
+	flex-grow: 1;
 }
 
 .panel--source-file {
-	flex-basis: 70%;
+	flex-basis: 60%;
+	flex-grow: 1;
 }
 
 .panel--selected {
@@ -284,3 +291,10 @@ a.source-hunk:focus {
 	gap: var(--space-m);
 }
 
+.search-history-item {
+	overflow-wrap: anywhere;
+}
+
+a.search-history-item:hover {
+	background: var(--bg-muted);
+}

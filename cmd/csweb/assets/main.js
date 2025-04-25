@@ -192,8 +192,21 @@ function activateSourceFileNav() {
 	};
 }
 
+// TODO:
+function activateSearchHistoryNav() {
+	return () => {};
+}
+
 function initPanelsNav() {
 	const SPECIALS = {
+		"panel-search-history": () => {
+			const deactivators = [
+				activateSearchHistoryNav(),
+			];
+			return () => {
+				deactivators.forEach((deactivate) => deactivate?.());
+			};
+		},
 		"panel-file-search": () => {
 			const deactivators = [
 				activateSearchInputNav("file-search-input"),
@@ -214,10 +227,11 @@ function initPanelsNav() {
 	};
 
 	const panelEls = [
+		"panel-search-history",
 		"panel-file-search",
 		"panel-source-file",
 	].map((id) => document.getElementById(id)).filter(Boolean);
-	assert(panelEls[0]?.id === "panel-file-search", "need at least file search panel");
+	assert(panelEls.length > 0);
 
 	let lastFocusedIdx = null;
 	let deactivateSpecials = null;
@@ -266,7 +280,11 @@ function initPanelsNav() {
 		}
 	};
 
+	let anyInputFocused = false;
+
 	const handleFocus = (ev) => {
+		anyInputFocused = ev.target instanceof HTMLInputElement;
+
 		if (lastFocusedIdx === null) {
 			return;
 		}
@@ -278,10 +296,17 @@ function initPanelsNav() {
 		activateElAtIdx(targetIdx);
 	};
 
+	const handleMousemove = (ev) => {
+		if (anyInputFocused) {
+			return;
+		}
+		handleFocus(ev);
+	};
+
 	window.addEventListener("keydown", handleKeydown);
 	window.addEventListener("click", handleFocus);
 	window.addEventListener("focusin", handleFocus);
-	window.addEventListener("mousemove", handleFocus);
+	window.addEventListener("mousemove", handleMousemove);
 
 	activateElAtIdx(0);
 }
