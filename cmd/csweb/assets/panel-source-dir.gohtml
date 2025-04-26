@@ -1,0 +1,24 @@
+{{- /* ARGS: map of Query, SourceDir */ -}}
+{{define "component.panel-source-dir"}}
+  <section class="panel panel--source-dir divide-l" id="panel-source-dir">
+    <div class="file-header px-m py-s divide-b">
+      {{template "component.breadcrumbs" map "Breadcrumbs" .SourceDir.Breadcrumbs "Query" .Query}}
+    </div>
+    <div class="panel-content source-dir-list" tabIndex="-1">
+      {{range $i, $entry := .SourceDir.Entries}}
+        {{- $path := printf "./%s" $entry.Name -}}
+        {{- if $entry.IsDir -}}
+          {{- /* NOTE: wihtut trailing slash (/) dot-slash (./) will not work */ -}}
+          {{- $path = printf "%s/" $path -}}
+        {{- end -}}
+        <a
+          href="{{$path}}?q={{$.Query}}"
+          class="source-dir-entry px-m py-xs divide-b"
+          id="source-dir-entry-{{$i}}"
+        >
+          {{- $entry.Name -}}
+        </a>
+      {{end}}
+    </div>
+  </section>
+{{end}}

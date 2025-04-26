@@ -53,23 +53,16 @@ function activateSearchInputNav(inputElId) {
 	};
 }
 
-let didActivateSearchResultsNavOnce = false;
-
-function activateSearchResultsNav() {
-	const searchResultEls = Array.from(document.querySelectorAll(`[id^="search-result-"]`));
-	if (searchResultEls.length === 0) {
-		return;
-	}
-
-	let lastFocusedIdx = null;
+function activateListNav(selector, { getLastFocusedIdx, setLastFocusedIdx }) {
+	const listEls = Array.from(document.querySelectorAll(selector));
 
 	function focusIdxRelative(relative) {
 		const newIdx = wrapAround(
-			(lastFocusedIdx ?? (relative > 0 ? -1 : searchResultEls.length)) + relative,
+			(getLastFocusedIdx() ?? (relative > 0 ? -1 : listEls.length)) + relative,
 			0,
-			searchResultEls.length,
+			listEls.length,
 		);
-		const target = searchResultEls[newIdx];
+		const target = listEls[newIdx];
 		target.focus();
 	}
 
@@ -80,38 +73,56 @@ function activateSearchResultsNav() {
 		if (ev.key.toLowerCase() === "n") {
 			focusIdxRelative(ev.shiftKey ? -1 : 1);
 		} else if (ev.key === "Escape") {
-			searchResultEls[lastFocusedIdx]?.blur();
+			listEls[getLastFocusedIdx()]?.blur();
 		}
 	};
 
 	const handleWindowFocusin = (ev) => {
-		const focusedIdx = searchResultEls.indexOf(ev.target);
+		const focusedIdx = listEls.indexOf(ev.target);
 		if (focusedIdx !== -1) {
-			lastFocusedIdx = focusedIdx;
+			setLastFocusedIdx(focusedIdx);
 		}
 	};
 
 	window.addEventListener("keydown", handleWindowKeydown);
 	window.addEventListener("focusin", handleWindowFocusin);
 
+	return {
+		listEls,
+		deactivate: () => {
+			window.removeEventListener("keydown", handleWindowKeydown);
+			window.removeEventListener("focusin", handleWindowFocusin);
+		},
+	};
+}
+
+let lastFocusedSearchResultIdx = null;
+let didActivateSearchResultsNavOnce = false;
+
+function activateSearchResultsNav() {
+	const getLastFocusedIdx = () => lastFocusedSearchResultIdx;
+	const setLastFocusedIdx = (idx) => lastFocusedSearchResultIdx = idx;
+
+	const { listEls, deactivate } = activateListNav(
+		`[id^="search-result-"]`,
+		{ getLastFocusedIdx, setLastFocusedIdx },
+	);
+
 	// for when we're viewing a file
 	if (!didActivateSearchResultsNavOnce) {
 		if (location.pathname !== "/") {
-			const maybeInitEl = searchResultEls.find((el) => (
+			const maybeInitListEl = listEls.find((el) => (
 				el.getAttribute("href").startsWith(location.pathname)
 			));
-			if (maybeInitEl) {
-				lastFocusedIdx = searchResultEls.indexOf(maybeInitEl);
-				maybeInitEl.scrollIntoView();
+			if (maybeInitListEl) {
+				setLastFocusedIdx(listEls.indexOf(maybeInitListEl));
+				maybeInitListEl.scrollIntoView();
 			}
 		}
 		didActivateSearchResultsNavOnce = true;
 	}
 
-	return () => {
-		window.removeEventListener("keydown", handleWindowKeydown);
-		window.removeEventListener("focusin", handleWindowFocusin);
-	};
+	return deactivate;
 }
 
 let didActivateSourceFileNavOnce = false;
@@ -192,50 +203,32 @@ function activateSourceFileNav() {
 	};
 }
 
-// TODO:
+let lastFocusedSearchHistoryEntryIdx = null;
+
 function activateSearchHistoryNav() {
-	const entryEls = Array.from(document.querySelectorAll(`[id^="search-history-entry-"]`));
-	if (entryEls.length === 0) {
-		return;
-	}
+	const getLastFocusedIdx = () => lastFocusedSearchHistoryEntryIdx;
+	const setLastFocusedIdx = (idx) => lastFocusedSearchHistoryEntryIdx = idx;
 
-	let lastFocusedIdx = null;
+	const { deactivate } = activateListNav(
+		`[id^="search-history-entry-"]`,
+		{ getLastFocusedIdx, setLastFocusedIdx },
+	);
 
-	function focusIdxRelative(relative) {
-		const newIdx = wrapAround(
-			(lastFocusedIdx ?? (relative > 0 ? -1 : entryEls.length)) + relative,
-			0,
-			entryEls.length,
-		);
-		const target = entryEls[newIdx];
-		target.focus();
-	}
+	return deactivate;
+}
 
-	const handleWindowKeydown = (ev) => {
-		if (ev.target instanceof HTMLInputElement) {
-			return;
-		}
-		if (ev.key.toLowerCase() === "n") {
-			focusIdxRelative(ev.shiftKey ? -1 : 1);
-		} else if (ev.key === "Escape") {
-			entryEls[lastFocusedIdx]?.blur();
-		}
-	};
+let lastFocusedSourceDirEntryIdx = null;
 
-	const handleWindowFocusin = (ev) => {
-		const focusedIdx = entryEls.indexOf(ev.target);
-		if (focusedIdx !== -1) {
-			lastFocusedIdx = focusedIdx;
-		}
-	};
+function activateSourceDirNav() {
+	const getLastFocusedIdx = () => lastFocusedSourceDirEntryIdx;
+	const setLastFocusedIdx = (idx) => lastFocusedSourceDirEntryIdx = idx;
 
-	window.addEventListener("keydown", handleWindowKeydown);
-	window.addEventListener("focusin", handleWindowFocusin);
+	const { deactivate } = activateListNav(
+		`[id^="source-dir-entry-"]`,
+		{ getLastFocusedIdx, setLastFocusedIdx },
+	);
 
-	return () => {
-		window.removeEventListener("keydown", handleWindowKeydown);
-		window.removeEventListener("focusin", handleWindowFocusin);
-	};
+	return deactivate;
 }
 
 function initPanelsNav() {
@@ -265,12 +258,21 @@ function initPanelsNav() {
 				deactivators.forEach((deactivate) => deactivate?.());
 			};
 		},
+		"panel-source-dir": () => {
+			const deactivators = [
+				activateSourceDirNav(),
+			];
+			return () => {
+				deactivators.forEach((deactivate) => deactivate?.());
+			};
+		},
 	};
 
 	const panelEls = [
 		"panel-search-history",
 		"panel-file-search",
 		"panel-source-file",
+		"panel-source-dir",
 	].map((id) => document.getElementById(id)).filter(Boolean);
 	assert(panelEls.length > 0);
 

@@ -579,6 +579,15 @@ func handleFilepath(ctx *bufedHttpCtx) *bufedHttpErr {
 		}
 	}
 
+	fileSearch, err := searchFiles(query, ix)
+	if err != nil {
+		return &bufedHttpErr{
+			status: http.StatusInternalServerError,
+			err:    fmt.Errorf("could not search files: %w", err),
+		}
+	}
+	maybeAppendSearchHistory(ctx.r)
+
 	if info.IsDir() {
 		sourceDir, err := readDir(root, name, query)
 		if err != nil {
@@ -591,18 +600,10 @@ func handleFilepath(ctx *bufedHttpCtx) *bufedHttpErr {
 			"Path":              ctx.r.URL.Path,
 			"Query":             qarg,
 			"PatternAggregates": collectSearchHistoryPatternAggregates(),
+			"FileSearch":        fileSearch,
 			"SourceDir":         sourceDir,
 		})
 	}
-
-	fileSearch, err := searchFiles(query, ix)
-	if err != nil {
-		return &bufedHttpErr{
-			status: http.StatusInternalServerError,
-			err:    fmt.Errorf("could not search files: %w", err),
-		}
-	}
-	maybeAppendSearchHistory(ctx.r)
 
 	sourceFile, err := readAndMatchFile(root, name, query)
 	if err != nil {
@@ -657,7 +658,9 @@ func erringMain() error {
 	http.HandleFunc("GET /{$}", bufedHttpHandlerFunc(handleIndex))
 	http.HandleFunc("GET /{filepath...}", bufedHttpHandlerFunc(handleFilepath))
 
-	return http.ListenAndServe("localhost:2473", nil)
+	addr := "localhost:2473"
+	fmt.Fprintf(os.Stderr, "serving on %s\n", addr)
+	return http.ListenAndServe(addr, nil)
 }
 
 func main() {

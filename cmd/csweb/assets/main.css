@@ -170,6 +170,11 @@ button:focus {
 	width: 0;
 }
 
+.panel--selected {
+	outline: 1px solid var(--border-accent-muted);
+	outline-offset: -1px;
+}
+
 .panel--search-history {
 	flex-basis: 10%;
 	width: 200px;
@@ -180,14 +185,10 @@ button:focus {
 	flex-grow: 1;
 }
 
-.panel--source-file {
+.panel--source-file,
+.panel--source-dir {
 	flex-basis: 60%;
 	flex-grow: 1;
-}
-
-.panel--selected {
-	outline: 1px solid var(--border-accent-muted);
-	outline-offset: -1px;
 }
 
 .panel-content {
@@ -291,10 +292,17 @@ a.source-hunk:focus {
 	gap: var(--space-m);
 }
 
-.search-history-item {
+.search-history-list,
+.source-dir-list {
+	display: flex;
+	flex-direction: column;
+}
+
+.search-history-entry {
 	overflow-wrap: anywhere;
 }
 
-a.search-history-item:hover {
+a.search-history-entry:hover,
+a.source-dir-entry:hover {
 	background: var(--bg-muted);
 }

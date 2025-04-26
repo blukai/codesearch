@@ -1,0 +1,13 @@
+{{block "page.filepath" .}}
+  {{template "layout.head" .}}
+  <main class="panels">
+    {{template "component.panel-search-history" .}}
+    {{template "component.panel-file-search" .}}
+    {{if .SourceDir}}
+      {{template "component.panel-source-dir" map "Query" .Query "SourceDir" .SourceDir}}
+    {{else if .SourceFile}}
+      {{template "component.panel-source-file" map "Query" .Query "SourceFile" .SourceFile}}
+    {{end}}
+  </div>
+  {{template "layout.foot" .}}
+{{end}}

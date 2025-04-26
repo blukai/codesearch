@@ -1,19 +1,17 @@
-{{- /* ARGS: map of Breadcrumbs, Query, SourceFile */ -}}
+{{- /* ARGS: map of Query, SourceFile */ -}}
 {{define "component.panel-source-file"}}
   <section class="panel panel--source-file divide-l" id="panel-source-file">
-    <div>
-      <div class="file-header px-m py-s divide-b">
-        {{template "component.breadcrumbs" map "Breadcrumbs" .SourceFile.Breadcrumbs "Query" .Query}}
+    <div class="file-header px-m py-s divide-b">
+      {{template "component.breadcrumbs" map "Breadcrumbs" .SourceFile.Breadcrumbs "Query" .Query}}
+    </div>
+    <div class="source-file-nav px-m divide-b">
+      <div class="source_file_nav__form fg-disabled">
+        find in file? icant, the web experiemnt has failed. 
       </div>
-      <div class="source-file-nav px-m divide-b">
-        <div class="source_file_nav__form fg-disabled">
-          find in file? icant, the web experiemnt has failed. 
-        </div>
-        <div class="source-file-nav__controls">
-          <span class="px-m" id="targeted-line-no">? / {{.SourceFile.MatchCount}}</span>
-          <button id="to-prev-match" disabled="true">/\</button>
-          <button id="to-next-match" disabled="true">\/</button>
-        </div>
+      <div class="source-file-nav__controls">
+        <span class="px-m" id="targeted-line-no">? / {{.SourceFile.MatchCount}}</span>
+        <button id="to-prev-match" disabled="true">/\</button>
+        <button id="to-next-match" disabled="true">\/</button>
       </div>
     </div>
     <div class="panel-content" tabIndex="-1">
