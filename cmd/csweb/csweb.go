@@ -111,13 +111,30 @@ type query struct {
 	re    *regexp.Regexp
 	stdre *stdregexp.Regexp
 	g     regexp.Grep
+	fre   *regexp.Regexp
 }
 
 func compileQuery(qarg string) (*query, error) {
-	pat := "(?m)" + qarg
+	flagSet := flag.NewFlagSet("q", flag.ContinueOnError)
+
+	fFlag := flagSet.String("f", "", "search only files with names matching this regexp")
+	iFlag := flagSet.Bool("i", false, "case-insensitive search")
+
+	flagSet.Parse(strings.Split(qarg, " "))
+
+	args := flagSet.Args()
+	if len(args) != 1 {
+		return nil, fmt.Errorf("invalid pattern %q", args)
+	}
+
+	pat := "(?m)" + args[0]
+	if *iFlag {
+		pat = "(?i)" + pat
+	}
+
 	re, err := regexp.Compile(pat)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not compile pattern: %w", err)
 	}
 
 	// NOTE: regex err was checked above ^
@@ -133,7 +150,20 @@ func compileQuery(qarg string) (*query, error) {
 		PostContext: 1,
 	}
 
-	return &query{re: re, stdre: stdre, g: g}, nil
+	var fre *regexp.Regexp
+	if expr := *fFlag; expr != "" {
+		fre, err = regexp.Compile(expr)
+		if err != nil {
+			return nil, fmt.Errorf("could not compile -f regexp: %w", err)
+		}
+	}
+
+	return &query{
+		re:    re,
+		stdre: stdre,
+		g:     g,
+		fre:   fre,
+	}, nil
 }
 
 func getQueryExpr(expr string) string {
@@ -346,6 +376,18 @@ func searchFiles(query *query, ix *index.Index) (*fileSearch, error) {
 
 	q := index.RegexpQuery(query.re.Syntax)
 	post := ix.PostingQuery(q)
+
+	if query.fre != nil {
+		fnames := make([]int, 0, len(post))
+		for _, fileid := range post {
+			name := ix.Name(fileid)
+			if query.fre.MatchString(name.String(), true, true) < 0 {
+				continue
+			}
+			fnames = append(fnames, fileid)
+		}
+		post = fnames
+	}
 
 	maxLineNo := 0
 	ret := fileSearch{Results: make([]fileSearchResult, 0)}
