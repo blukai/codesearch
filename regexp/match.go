@@ -554,11 +554,11 @@ func (g *Grep) Reader(r io.Reader, name string) {
 		case g.PreContext+g.PostContext > 0:
 			fmt.Fprintf(g.Stdout, "%s%d:\n", prefix, match.LineNo)
 			for _, line := range match.PreContext {
-				fmt.Fprintf(g.Stdout, "\t\t%s\n", line)
+				fmt.Fprintf(g.Stdout, "\t\t%s", line)
 			}
 			fmt.Fprintf(g.Stdout, "\t>>\t%s%s", match.Line, nl)
 			for _, line := range match.PostContext {
-				fmt.Fprintf(g.Stdout, "\t\t%s\n", line)
+				fmt.Fprintf(g.Stdout, "\t\t%s", line)
 			}
 		case g.N:
 			fmt.Fprintf(g.Stdout, "%s%d:%s%s", prefix, match.LineNo, match.Line, nl)
@@ -605,74 +605,19 @@ func linePrefixLen(buf []byte, lines int) int {
 }
 
 func lineContext(numBefore, numAfter int, buf []byte, lineStart, lineEnd int) (before [][]byte, line []byte, after [][]byte) {
-	beforeChunk := buf[lineStart-lineSuffixLen(buf[:lineStart], numBefore) : lineStart]
-	afterChunk := buf[lineEnd : lineEnd+linePrefixLen(buf[lineEnd:], numAfter)]
+	line = buf[lineStart:lineEnd]
 
-	line = chomp(buf[lineStart:lineEnd])
+	beforeChunk := buf[lineStart-lineSuffixLen(buf[:lineStart], numBefore) : lineStart]
 	before = bytes.SplitAfter(beforeChunk, nl)
 	if len(before[len(before)-1]) == 0 {
 		before = before[:len(before)-1]
 	}
-	for i := range before {
-		before[i] = chomp(before[i])
-	}
-	after = bytes.Split(afterChunk, nl)
+
+	afterChunk := buf[lineEnd : lineEnd+linePrefixLen(buf[lineEnd:], numAfter)]
+	after = bytes.SplitAfter(afterChunk, nl)
 	if len(after[len(after)-1]) == 0 {
 		after = after[:len(after)-1]
 	}
-	for i := range after {
-		after[i] = chomp(after[i])
-	}
 
-	var prefix []byte
-	prefix = updatePrefix(prefix, line)
-	for _, l := range before {
-		prefix = updatePrefix(prefix, l)
-	}
-	for _, l := range after {
-		prefix = updatePrefix(prefix, l)
-	}
-
-	line = cutPrefix(line, prefix)
-	for i, l := range before {
-		before[i] = cutPrefix(l, prefix)
-	}
-	for i, l := range after {
-		after[i] = cutPrefix(l, prefix)
-	}
 	return
-}
-
-func updatePrefix(prefix, line []byte) []byte {
-	if prefix == nil {
-		i := 0
-		for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
-			i++
-		}
-		return line[:i]
-	}
-
-	i := 0
-	for i < len(line) && i < len(prefix) && line[i] == prefix[i] {
-		i++
-	}
-	if i >= len(line) {
-		return prefix
-	}
-	return prefix[:i]
-}
-
-func cutPrefix(line, prefix []byte) []byte {
-	if len(prefix) > len(line) {
-		return nil
-	}
-	return line[len(prefix):]
-}
-
-func chomp(s []byte) []byte {
-	i := len(s)
-	for i > 0 && (s[i-1] == ' ' || s[i-1] == '\t' || s[i-1] == '\r' || s[i-1] == '\n') {
-		i--
-	}
-	return s[:i]
 }
