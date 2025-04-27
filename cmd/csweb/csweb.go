@@ -292,16 +292,7 @@ func (h *sourceHunk) getLastLineNoAssumeSorted() (int, bool) {
 	return h.Lines[len(h.Lines)-1].LineNo, true
 }
 
-func (h *sourceHunk) maybeAppendLineCopy(line []byte, lineNo int, query *query) {
-	if len(line) == 0 {
-		return
-	}
-
-	lastLineNo, ok := h.getLastLineNoAssumeSorted()
-	if ok && lastLineNo >= lineNo {
-		return
-	}
-
+func (h *sourceHunk) appendLineCopy(line []byte, lineNo int, query *query) {
 	sr := sourceLine{
 		Line:                  make([]byte, len(line)),
 		LineNo:                lineNo,
@@ -321,7 +312,7 @@ type fileSearchResult struct {
 	Hunks       []sourceHunk
 }
 
-func (f *fileSearchResult) shouldStartNewHunk(grepMatch *regexp.GrepMatch) bool {
+func (f *fileSearchResult) shouldStartNewHunk(match *regexp.GrepMatch) bool {
 	if len(f.Hunks) == 0 {
 		return true
 	}
@@ -332,34 +323,38 @@ func (f *fileSearchResult) shouldStartNewHunk(grepMatch *regexp.GrepMatch) bool 
 		return false
 	}
 
-	lineNo := grepMatch.LineNo - len(grepMatch.PreContext)
+	lineNo := match.LineNo - len(match.PreContext)
 	gap := lineNo - lastLineNo
 	return gap > 0
 }
 
-func (f *fileSearchResult) appendGrepMatch(grepMatch *regexp.GrepMatch, query *query) {
-	if f.shouldStartNewHunk(grepMatch) {
+func (f *fileSearchResult) appendMatch(match *regexp.GrepMatch, query *query) {
+	if f.shouldStartNewHunk(match) {
 		f.Hunks = append(f.Hunks, sourceHunk{
-			Lines:          make([]sourceLine, 0, len(grepMatch.PreContext)+1+len(grepMatch.PostContext)),
+			Lines:          make([]sourceLine, 0, len(match.PreContext)+1+len(match.PostContext)),
 			MatchedLineNos: make([]int, 0, 1),
 		})
 	}
 
 	hunk := &f.Hunks[len(f.Hunks)-1]
-	lineNo := grepMatch.LineNo - len(grepMatch.PreContext)
+	lineNo := match.LineNo - len(match.PreContext)
 
-	// TODO: can stuff below be chained somehow?
-
-	for _, line := range grepMatch.PreContext {
-		hunk.maybeAppendLineCopy(line, lineNo, query)
+	preStart := 0
+	for ; preStart < len(match.PreContext) && len(bytes.TrimSpace(match.PreContext[preStart])) == 0; preStart += 1 {
+	}
+	for _, line := range match.PreContext[preStart:] {
+		hunk.appendLineCopy(line, lineNo, query)
 		lineNo += 1
 	}
 
-	hunk.maybeAppendLineCopy(grepMatch.Line, lineNo, query)
+	hunk.appendLineCopy(match.Line, lineNo, query)
 	lineNo += 1
 
-	for _, line := range grepMatch.PostContext {
-		hunk.maybeAppendLineCopy(line, lineNo, query)
+	postEnd := len(match.PostContext) - 1
+	for ; postEnd > -1 && len(bytes.TrimSpace(match.PostContext[postEnd])) == 0; postEnd -= 1 {
+	}
+	for _, line := range match.PostContext[:postEnd+1] {
+		hunk.appendLineCopy(line, lineNo, query)
 		lineNo += 1
 	}
 }
@@ -408,8 +403,8 @@ func searchFiles(query *query, ix *index.Index) (*fileSearch, error) {
 			continue
 		}
 
-		for grepMatch := range query.g.ReaderSeq(file) {
-			result.appendGrepMatch(grepMatch, query)
+		for match := range query.g.ReaderSeq(file) {
+			result.appendMatch(match, query)
 		}
 
 		file.Close()

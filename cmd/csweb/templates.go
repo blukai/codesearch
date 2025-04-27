@@ -5,7 +5,6 @@ import (
 	"html/template"
 	"io"
 	"io/fs"
-	"strings"
 )
 
 // allows to pass multiple args into templates in a stupid way.
@@ -44,7 +43,6 @@ func initTemplate(fs fs.FS, patterns ...string) (*template.Template, error) {
 	// NOTE: must follow standard naming conventions; see
 	// https://pkg.go.dev/text/template#hdr-Functions
 	t.Funcs(template.FuncMap{
-		"trimspace":    strings.TrimSpace,
 		"add":          func(lhs, rhs int) int { return lhs + rhs },
 		"sub":          func(lhs, rhs int) int { return lhs - rhs },
 		"map":          tmap,
